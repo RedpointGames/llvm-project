@@ -379,6 +379,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasTypeLoc);
   REGISTER_MATCHER(hasUnaryOperand);
   REGISTER_MATCHER(hasUnarySelector);
+  REGISTER_MATCHER(isPODType);
   // @unreal: BEGIN
   REGISTER_MATCHER(isUClass);
   REGISTER_MATCHER(isUStruct);
