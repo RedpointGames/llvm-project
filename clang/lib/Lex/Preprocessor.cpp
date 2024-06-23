@@ -51,6 +51,9 @@
 #include "clang/Lex/ScratchBuffer.h"
 #include "clang/Lex/Token.h"
 #include "clang/Lex/TokenLexer.h"
+// @unreal: BEGIN
+#include "clang/Lex/UnrealEnginePPTagger.h"
+// @unreal: END
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -165,6 +168,11 @@ Preprocessor::Preprocessor(const PreprocessorOptions &PPOpts,
     PreambleConditionalStack.startRecording();
 
   MaxTokens = LangOpts.MaxTokens;
+
+  // @unreal: BEGIN
+  // Always register Unreal Engine PP callbacks.
+  this->addPPCallbacks(std::make_unique<UnrealEnginePPTagger>(*this, &SM));
+  // @unreal: END
 }
 
 Preprocessor::~Preprocessor() {

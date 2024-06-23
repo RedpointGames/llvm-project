@@ -9503,6 +9503,9 @@ static FunctionDecl *CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
         SemaRef.Context, cast<CXXRecordDecl>(DC), D.getBeginLoc(), NameInfo, R,
         TInfo, SC, SemaRef.getCurFPFeatures().isFPConstrained(), isInline,
         ConstexprKind, SourceLocation(), TrailingRequiresClause);
+    // @unreal: BEGIN
+    SemaRef.AddUnrealSpecifiersForDecl(Ret);
+    // @unreal: END
     IsVirtualOkay = !Ret->isStatic();
     return Ret;
   } else {
@@ -18376,6 +18379,30 @@ CreateNewDecl:
     }
   }
 
+  // @unreal: BEGIN
+  AddUnrealSpecifiersForDecl(New);
+  if (CXXRecordDecl *CRD = dyn_cast<CXXRecordDecl>(New)) {
+    std::string InterfaceName = New->getName().str();
+    if (New->UnrealType == UnrealType::UT_UInterface) {
+      if (InterfaceName.size() > 0 && InterfaceName[0] == 'U') {
+        InterfaceName[0] = 'I';
+        this->ExpectedIInterfaceToUInterfaceAttachments.insert(
+            std::pair<std::string, CXXRecordDecl *>(InterfaceName, CRD));
+      }
+    } else if (New->UnrealType == UnrealType::UT_None &&
+               this->ExpectedIInterfaceToUInterfaceAttachments.find(
+                   InterfaceName) !=
+                   this->ExpectedIInterfaceToUInterfaceAttachments.end()) {
+      CXXRecordDecl *UInterfaceDecl =
+          this->ExpectedIInterfaceToUInterfaceAttachments[InterfaceName];
+      UInterfaceDecl->IInterfaceAttachment = CRD;
+      CRD->UInterfaceAttachment = UInterfaceDecl;
+      CRD->UnrealType = UnrealType::UT_IInterface;
+      this->ExpectedIInterfaceToUInterfaceAttachments.erase(InterfaceName);
+    }
+  }
+  // @unreal: END
+
   if (ModulePrivateLoc.isValid()) {
     if (isMemberSpecialization)
       Diag(New->getLocation(), diag::err_module_private_specialization)
@@ -18984,6 +19011,9 @@ FieldDecl *Sema::CheckFieldDecl(DeclarationName Name, QualType T,
 
   FieldDecl *NewFD = FieldDecl::Create(Context, Record, TSSL, Loc, II, T, TInfo,
                                        BitWidth, Mutable, InitStyle);
+  // @unreal: BEGIN
+  AddUnrealSpecifiersForDecl(NewFD);
+  // @unreal: END
   if (InvalidDecl)
     NewFD->setInvalidDecl();
 

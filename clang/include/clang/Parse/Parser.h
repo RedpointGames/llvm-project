@@ -17,6 +17,9 @@
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/Preprocessor.h"
+// @unreal: BEGIN
+#include "clang/Lex/UnrealEngineData.h"
+// @unreal: END
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "clang/Sema/SemaObjC.h"
@@ -724,6 +727,18 @@ private:
            Kind == tok::annot_repl_input_end;
   }
 
+  // @unreal: BEGIN
+  /// Consume any and all Unreal Engine tokens into the stack.
+  void ConsumePragmaUnreal();
+
+  /// Checks that there aren't any Unreal tokens on the stack.
+  void CheckNoPragmaUnreal();
+
+  /// Handle Unreal Engine semantics.
+  void HandlePragmaUnreal(tok::TokenKind Kind,
+                          const UnrealSpecifier &UnrealData);
+  // @unreal: END
+  
   static void setTypeAnnotation(Token &Tok, TypeResult T) {
     assert((T.isInvalid() || T.get()) &&
            "produced a valid-but-null type annotation?");
