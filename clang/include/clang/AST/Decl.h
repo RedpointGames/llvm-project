@@ -34,6 +34,9 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/Visibility.h"
+// @unreal: BEGIN
+#include "clang/Lex/UnrealEngineData.h"
+// @unreal: END
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerIntPair.h"
@@ -259,9 +262,26 @@ private:
 
 protected:
   NamedDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName N)
-      : Decl(DK, DC, L), Name(N) {}
+      : Decl(DK, DC, L), Name(N)
+      // @unreal: BEGIN
+      , UnrealType(UnrealType::UT_None), UnrealSpecifiers(), UnrealMetadata()
+      // @unreal: END
+      {}
 
 public:
+  // @unreal: BEGIN
+  /// The Unreal type flag for this decl.
+  unsigned UnrealType;
+
+  /// The Unreal specifiers that are associated with this decl.
+  /// todo: Make this a map for faster lookups.
+  std::vector<UnrealSpecifier> UnrealSpecifiers;
+
+  /// The Unreal metadata that is associated with this decl.
+  /// todo: Make this a map for faster lookups.
+  std::vector<UnrealSpecifier> UnrealMetadata;
+  // @unreal: END
+
   /// Get the identifier that names this declaration, if there is one.
   ///
   /// This will return NULL if this declaration has no name (e.g., for

@@ -200,6 +200,9 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       AlignPackStack(AlignPackInfo(getLangOpts().XLPragmaPack)),
       DataSegStack(nullptr), BSSSegStack(nullptr), ConstSegStack(nullptr),
       CodeSegStack(nullptr), StrictGuardStackCheckStack(false),
+      // @unreal: BEGIN
+      UnrealStack(), ExpectedIInterfaceToUInterfaceAttachments(),
+      // @unreal: END
       FpPragmaStack(FPOptionsOverride()), CurInitSeg(nullptr),
       VisContext(nullptr), PragmaAttributeCurrentTargetDecl(nullptr),
       IsBuildingRecoveryCallExpr(false), LateTemplateParser(nullptr),

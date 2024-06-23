@@ -514,6 +514,12 @@ protected:
                 IdentifierInfo *Id, CXXRecordDecl *PrevDecl);
 
 public:
+  // @unreal: BEGIN
+  // Unreal attachments for interfaces.
+  CXXRecordDecl *IInterfaceAttachment;
+  CXXRecordDecl *UInterfaceAttachment;
+  // @unreal: END
+
   /// Iterator that traverses the base classes of a class.
   using base_class_iterator = CXXBaseSpecifier *;
 

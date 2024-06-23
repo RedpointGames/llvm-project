@@ -380,6 +380,20 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasUnaryOperand);
   REGISTER_MATCHER(hasUnarySelector);
   REGISTER_MATCHER(isPODType);
+  // @unreal: BEGIN
+  REGISTER_MATCHER(isUClass);
+  REGISTER_MATCHER(isUStruct);
+  REGISTER_MATCHER(isUInterface);
+  REGISTER_MATCHER(isIInterface);
+  REGISTER_MATCHER(isUFunction);
+  REGISTER_MATCHER(isUProperty);
+  REGISTER_MATCHER(hasUSpecifier);
+  REGISTER_MATCHER(hasUSpecifierValue);
+  REGISTER_MATCHER(hasUMetadata);
+  REGISTER_MATCHER(hasUMetadataValue);
+  REGISTER_MATCHER(withIInterface);
+  REGISTER_MATCHER(withUInterface);
+  // @unreal: END
   REGISTER_MATCHER(hasUnderlyingDecl);
   REGISTER_MATCHER(hasUnderlyingType);
   REGISTER_MATCHER(hasUnqualifiedDesugaredType);

@@ -3700,6 +3700,244 @@ hasDeclaration(const internal::Matcher<Decl> &InnerMatcher) {
       InnerMatcher);
 }
 
+// @unreal: BEGIN
+/// Matches if a named decl is a UCLASS.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {};
+/// \endcode
+/// \c namedDecl(isUClass())
+///   matches the class.
+AST_MATCHER(NamedDecl, isUClass) {
+  return Node.UnrealType == UnrealType::UT_UClass;
+}
+
+/// Matches if a named decl is a USTRUCT.
+///
+/// Given
+/// \code
+///   USTRUCT()
+///   struct FMyStruct {};
+/// \endcode
+/// \c namedDecl(isUStruct())
+///   matches the struct.
+AST_MATCHER(NamedDecl, isUStruct) {
+  return Node.UnrealType == UnrealType::UT_UStruct;
+}
+
+/// Matches if a named decl is a UINTERFACE.
+///
+/// Given
+/// \code
+///   UINTERFACE()
+///   class UMyInter : public UInterface {};
+/// \endcode
+/// \c namedDecl(isUInterface())
+///   matches the interface.
+AST_MATCHER(NamedDecl, isUInterface) {
+  return Node.UnrealType == UnrealType::UT_UInterface;
+}
+
+/// Matches if a named decl is the IInterface record for a UINTERFACE().
+///
+/// Given
+/// \code
+///   UINTERFACE()
+///   class UMyInter : public UInterface {};
+///
+///   class IMyInter {};
+/// \endcode
+/// \c namedDecl(isIInterface())
+///   matches the \c IMyInter CXXRecordDecl.
+AST_MATCHER(NamedDecl, isIInterface) {
+  return Node.UnrealType == UnrealType::UT_IInterface;
+}
+
+/// Matches if a named decl is a UFUNCTION.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {
+///     GENERATED_BODY();
+///   public:
+///     UFUNCTION()
+///     void MyFunc();
+///   };
+/// \endcode
+/// \c namedDecl(isUFunction())
+///   matches the \c MyFunc function.
+AST_MATCHER(NamedDecl, isUFunction) {
+  return Node.UnrealType == UnrealType::UT_UFunction;
+}
+
+/// Matches if a named decl is a UPROPERTY.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {
+///     GENERATED_BODY();
+///   public:
+///     UPROPERTY()
+///     int MyProp;
+///   };
+/// \endcode
+/// \c namedDecl(isUProperty())
+///   matches the \c MyProp field.
+AST_MATCHER(NamedDecl, isUProperty) {
+  return Node.UnrealType == UnrealType::UT_UProperty;
+}
+
+inline bool iequals(const std::string &a, const std::string &b) {
+  unsigned int sz = a.size();
+  if (b.size() != sz)
+    return false;
+  for (unsigned int i = 0; i < sz; ++i)
+    if (tolower(a[i]) != tolower(b[i]))
+      return false;
+  return true;
+}
+
+/// Matches if a named decl has a given Unreal Engine specifier.
+///
+/// Specifier name comparisons are case insensitive.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {
+///     GENERATED_BODY();
+///   public:
+///     UPROPERTY(Replicated)
+///     int MyProp;
+///   };
+/// \endcode
+/// \c namedDecl(hasUSpecifier("replicated"))
+///   matches the \c MyProp field.
+AST_MATCHER_P(NamedDecl, hasUSpecifier, std::string, Name) {
+  if (Node.UnrealType == UnrealType::UT_None) {
+    return false;
+  }
+  for (const auto &Spec : Node.UnrealSpecifiers) {
+    if (iequals(Name, Spec.SpecifierName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Matches if a named decl has a given Unreal Engine specifier with the given
+/// value.
+///
+/// Specifier name comparisons are case insensitive, but specifier value
+/// comparisons are exact.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {
+///     GENERATED_BODY();
+///   public:
+///     UPROPERTY(BlueprintGetter=Hello)
+///     int MyProp;
+///   };
+/// \endcode
+/// \c namedDecl(hasUSpecifierValue("blueprintgetter", "Hello"))
+///   matches the \c MyProp field.
+AST_MATCHER_P2(NamedDecl, hasUSpecifierValue, std::string, Name, std::string,
+               Value) {
+  if (Node.UnrealType == UnrealType::UT_None) {
+    return false;
+  }
+  for (const auto &Spec : Node.UnrealSpecifiers) {
+    if (iequals(Name, Spec.SpecifierName)) {
+      return Value == Spec.SpecifierValue;
+    }
+  }
+  return false;
+}
+
+/// Matches if a named decl has a given Unreal Engine metadata.
+///
+/// Metadata name comparisons are case insensitive.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {
+///     GENERATED_BODY();
+///   public:
+///     UPROPERTY(metadata = (Category = "Hello"))
+///     int MyProp;
+///   };
+/// \endcode
+/// \c namedDecl(hasUMetadata("category"))
+///   matches the \c MyProp field.
+AST_MATCHER_P(NamedDecl, hasUMetadata, std::string, Name) {
+  if (Node.UnrealType == UnrealType::UT_None) {
+    return false;
+  }
+  for (const auto &Spec : Node.UnrealMetadata) {
+    if (iequals(Name, Spec.SpecifierName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Matches if a named decl has a given Unreal Engine metadata with the given
+/// value.
+///
+/// Metadata name comparisons are case insensitive, but metadata value
+/// comparisons are exact.
+///
+/// Given
+/// \code
+///   UCLASS()
+///   class UMyCls : public UObject {
+///     GENERATED_BODY();
+///   public:
+///     UPROPERTY(metadata = (Category = "Hello"))
+///     int MyProp;
+///   };
+/// \endcode
+/// \c namedDecl(hasUMetadataValue("category", "Hello"))
+///   matches the \c MyProp field.
+AST_MATCHER_P2(NamedDecl, hasUMetadataValue, std::string, Name, std::string,
+               Value) {
+  if (Node.UnrealType == UnrealType::UT_None) {
+    return false;
+  }
+  for (const auto &Spec : Node.UnrealMetadata) {
+    if (iequals(Name, Spec.SpecifierName)) {
+      return Value == Spec.SpecifierValue;
+    }
+  }
+  return false;
+}
+
+/// Matches the IInterface class that this UInterface has associated with it.
+AST_MATCHER_P(CXXRecordDecl, withIInterface, internal::Matcher<CXXRecordDecl>,
+              InnerMatcher) {
+  if (Node.IInterfaceAttachment == nullptr) {
+    return false;
+  }
+  return InnerMatcher.matches(*Node.IInterfaceAttachment, Finder, Builder);
+}
+
+/// Matches the UInterface class that this UInterface has associated with it.
+AST_MATCHER_P(CXXRecordDecl, withUInterface, internal::Matcher<CXXRecordDecl>,
+              InnerMatcher) {
+  if (Node.UInterfaceAttachment == nullptr) {
+    return false;
+  }
+  return InnerMatcher.matches(*Node.UInterfaceAttachment, Finder, Builder);
+}
+// @unreal: END
+
 /// Matches a \c NamedDecl whose underlying declaration matches the given
 /// matcher.
 ///
