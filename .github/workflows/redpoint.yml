@@ -1,0 +1,33 @@
+name: "Redpoint Games LLVM"
+
+on:
+  push:
+    branches: [ "redpoint/*" ]
+  pull_request:
+    branches: [ "redpoint/*" ]
+
+jobs:
+  llvm-redpoint-linux:
+    name: "Build for Linux"
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Extract branch name
+      shell: bash
+      run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/redpoint/}}" >> $GITHUB_OUTPUT
+      id: extract_branch
+    - name: Build
+      run: |
+        mkdir build64
+        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;clang-tools-extra;lld" -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD:STRING=X86 -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild64
+        cmake --build build64 --config Release -j 20
+        cmake --install build64 --config Release --prefix "/opt/llvm-redpoint/${{ steps.extract_branch.outputs.branch }}"
+        mv /opt/llvm-redpoint/${{ steps.extract_branch.outputs.branch }} llvm-${{ steps.extract_branch.outputs.branch }}
+    - name: "Upload LLVM"
+      uses: actions/upload-artifact@v4
+      with:
+        name: llvm-${{ steps.extract_branch.outputs.branch }}
+        if-no-files-found: error
+        path: |
+          llvm-${{ steps.extract_branch.outputs.branch }}
