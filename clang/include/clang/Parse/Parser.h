@@ -17,6 +17,9 @@
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/Preprocessor.h"
+// @unreal: BEGIN
+#include "clang/Lex/UnrealEngineData.h"
+// @unreal: END
 #include "clang/Sema/Sema.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Frontend/OpenMP/OMPContext.h"
@@ -729,6 +732,18 @@ private:
   /// Handle the annotation token produced for
   /// #pragma GCC visibility...
   void HandlePragmaVisibility();
+
+  // @unreal: BEGIN
+  /// Consume any and all Unreal Engine tokens into the stack.
+  void ConsumePragmaUnreal();
+
+  /// Checks that there aren't any Unreal tokens on the stack.
+  void CheckNoPragmaUnreal();
+
+  /// Handle Unreal Engine semantics.
+  void HandlePragmaUnreal(tok::TokenKind Kind,
+                          const UnrealSpecifier &UnrealData);
+  // @unreal: END
 
   /// Handle the annotation token produced for
   /// #pragma pack...
