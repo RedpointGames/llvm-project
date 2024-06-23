@@ -3461,6 +3461,12 @@ def err_conflicting_codeseg_attribute : Error<
 def warn_duplicate_codeseg_attribute : Warning<
   "duplicate code segment specifiers">, InGroup<Section>;
 
+// @unreal: BEGIN
+def warn_unreal_data_discarded_on_new_specifier : Warning<
+  "previous Unreal Engine data discarded on new specifier">,
+  InGroup<DiagGroup<"unreal-engine">>;
+// @unreal: END
+
 def err_anonymous_property: Error<
   "anonymous property is not supported">;
 def err_property_is_variably_modified : Error<

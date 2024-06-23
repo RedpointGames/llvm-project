@@ -125,8 +125,11 @@ CXXRecordDecl::CXXRecordDecl(Kind K, TagKind TK, const ASTContext &C,
                              SourceLocation IdLoc, IdentifierInfo *Id,
                              CXXRecordDecl *PrevDecl)
     : RecordDecl(K, TK, C, DC, StartLoc, IdLoc, Id, PrevDecl),
-      DefinitionData(PrevDecl ? PrevDecl->DefinitionData
-                              : nullptr) {}
+      DefinitionData(PrevDecl ? PrevDecl->DefinitionData : nullptr)
+      // @unreal: BEGIN
+      , IInterfaceAttachment(nullptr), UInterfaceAttachment(nullptr) 
+      // @unreal: END
+      {}
 
 CXXRecordDecl *CXXRecordDecl::Create(const ASTContext &C, TagKind TK,
                                      DeclContext *DC, SourceLocation StartLoc,

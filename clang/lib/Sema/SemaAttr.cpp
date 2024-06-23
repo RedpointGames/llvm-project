@@ -50,6 +50,58 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
   }
 }
 
+// @unreal: BEGIN
+void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
+  if (this->UnrealStack.size() > 0) {
+    if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
+      if (dyn_cast<FieldDecl>(ND) != nullptr ||
+          dyn_cast<CXXMethodDecl>(ND) != nullptr ||
+          dyn_cast<RecordDecl>(ND) != nullptr) {
+#if !defined(NDEBUG)
+        llvm::outs() << "[UNREAL STACK] hit: " << ND->getDeclKindName() << "\n";
+        for (const auto &Val : this->UnrealStack) {
+          llvm::outs() << "[UNREAL STACK] consume: "
+                       << tok::getTokenName(Val.Kind) << " '"
+                       << Val.SpecData.SpecifierName << "' = '"
+                       << Val.SpecData.SpecifierValue << "'\n";
+        }
+#endif
+      }
+      if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
+        if (this->UnrealStack[0].Kind == tok::annot_unreal_uproperty) {
+          ND->UnrealType = UnrealType::UT_UProperty;
+        }
+      }
+      if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
+        if (this->UnrealStack[0].Kind == tok::annot_unreal_ufunction) {
+          ND->UnrealType = UnrealType::UT_UFunction;
+        }
+      }
+      if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+        if (this->UnrealStack[0].Kind == tok::annot_unreal_uclass) {
+          ND->UnrealType = UnrealType::UT_UClass;
+        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_uinterface) {
+          ND->UnrealType = UnrealType::UT_UInterface;
+        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_ustruct) {
+          ND->UnrealType = UnrealType::UT_UStruct;
+        }
+      }
+      if (ND->UnrealType != UnrealType::UT_None) {
+        for (int i = 1; i < this->UnrealStack.size(); i++) {
+          const auto &Val = this->UnrealStack[i];
+          if (Val.Kind == tok::annot_unreal_specifier) {
+            ND->UnrealSpecifiers.push_back(Val.SpecData);
+          } else if (Val.Kind == tok::annot_unreal_metadata_specifier) {
+            ND->UnrealMetadata.push_back(Val.SpecData);
+          }
+        }
+      }
+      this->UnrealStack.clear();
+    }
+  }
+}
+// @unreal: END
+
 void Sema::AddAlignmentAttributesForRecord(RecordDecl *RD) {
   AlignPackInfo InfoVal = AlignPackStack.CurrentValue;
   AlignPackInfo::Mode M = InfoVal.getAlignMode();
@@ -318,6 +370,35 @@ void Sema::ActOnPragmaClangSection(SourceLocation PragmaLoc,
   CSec->SectionName = std::string(SecName);
   CSec->PragmaLocation = PragmaLoc;
 }
+
+// @unreal: BEGIN
+void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+                           const UnrealSpecifier &UnrealData) {
+#if !defined(NDEBUG)
+  llvm::outs() << "[UNREAL STACK] push: " << tok::getTokenName(Kind) << " '"
+               << UnrealData.SpecifierName << "' = '"
+               << UnrealData.SpecifierValue << "'\n";
+#endif
+  if (UnrealStack.size() != 0 &&
+      (Kind == tok::TokenKind::annot_unreal_uclass ||
+       Kind == tok::TokenKind::annot_unreal_ufunction ||
+       Kind == tok::TokenKind::annot_unreal_ustruct ||
+       Kind == tok::TokenKind::annot_unreal_uinterface ||
+       Kind == tok::TokenKind::annot_unreal_uproperty)) {
+    Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
+    UnrealStack.clear();
+  }
+  if (UnrealStack.size() == 0 &&
+      (Kind == tok::TokenKind::annot_unreal_specifier ||
+       Kind == tok::TokenKind::annot_unreal_metadata_specifier)) {
+    assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
+                    "macro was pushed first!");
+  }
+  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData));
+  assert((UnrealStack.size() < 1000) &&
+         "Unreal stack not being consumed by type declaration.");
+}
+// @unreal: END
 
 void Sema::ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
                            StringRef SlotLabel, Expr *alignment) {
