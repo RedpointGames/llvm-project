@@ -406,6 +406,17 @@ def note_file_misc_sloc_usage : Note<
 def err_module_format_unhandled : Error<
   "no handler registered for module format '%0'">, DefaultFatal;
 
+// Clang rules
+def err_clangrules_message : Error<"%0">;
+def warn_clangrules_message : Warning<"%0">, InGroup<DiagGroup<"clangrules">>;
+def note_clangrules_message : Note<"%0">;
+def err_clangrules_rule_name_is_prefixed : Error<"Rule name '%0' must be unprefixed and not contain a '/' character.">;
+def err_clangrules_ruleset_name_is_prefixed : Error<"Ruleset name '%0' must be unprefixed and not contain a '/' character.">;
+def err_clangrules_ruleset_severity_is_notset : Error<"Ruleset '%0' severity must be a value other than 'NotSet'.">;
+def err_clangrules_rule_name_conflict : Error<"Namespaced rule name '%0' is already declared in another .clang-rules file. Try using a different namespace to avoid conflicts.">;
+def err_clangrules_rule_missing : Error<"Namespaced ruleset '%0' requested namespaced rule '%1' but it wasn't known at runtime. Make sure it is declared in either the same .clang-rules file, or in a .clang-rules file in a parent directory.">;
+def err_clangrules_rule_matcher_parse_failure : Error<"Namespaced rule '%0' matcher failed to parse: %1">;
+
 // API notes
 def err_apinotes_message : Error<"%0">;
 def warn_apinotes_message : Warning<"%0">, InGroup<DiagGroup<"apinotes">>;

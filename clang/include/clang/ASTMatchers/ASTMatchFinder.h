@@ -200,6 +200,8 @@ public:
   /// Finds all matches in the given AST.
   void matchAST(ASTContext &Context);
 
+  void matchDecl(clang::Decl *Decl, ASTContext &Context);
+
   /// Registers a callback to notify the end of parsing.
   ///
   /// The provided closure is called after parsing is done, before the AST is
