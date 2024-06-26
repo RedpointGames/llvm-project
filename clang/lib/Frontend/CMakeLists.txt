@@ -15,6 +15,7 @@ add_clang_library(clangFrontend
   ASTUnit.cpp
   ChainedDiagnosticConsumer.cpp
   ChainedIncludesSource.cpp
+  ClangRulesets.cpp
   CompilerInstance.cpp
   CompilerInvocation.cpp
   CreateInvocationFromCommandLine.cpp
@@ -57,4 +58,6 @@ add_clang_library(clangFrontend
   clangParse
   clangSema
   clangSerialization
+  clangASTMatchers
+  clangDynamicASTMatchers
   )
