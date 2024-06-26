@@ -57,37 +57,22 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
     bool IsRecognised = false;
     std::vector<TokenInfo> TokensToPush;
     if (MacroName == "UCLASS") {
-#if !defined(NDEBUG)
-      llvm::outs() << "[UNREAL PP] alloc: annot_unreal_uclass\n";
-#endif
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_uclass, nullptr));
       IsRecognised = true;
     } else if (MacroName == "USTRUCT") {
-#if !defined(NDEBUG)
-      llvm::outs() << "[UNREAL PP] alloc: annot_unreal_ustruct\n";
-#endif
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_ustruct, nullptr));
       IsRecognised = true;
     } else if (MacroName == "UINTERFACE") {
-#if !defined(NDEBUG)
-      llvm::outs() << "[UNREAL PP] alloc: annot_unreal_uinterface\n";
-#endif
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_uinterface, nullptr));
       IsRecognised = true;
     } else if (MacroName == "UPROPERTY") {
-#if !defined(NDEBUG)
-      llvm::outs() << "[UNREAL PP] alloc: annot_unreal_uproperty\n";
-#endif
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_uproperty, nullptr));
       IsRecognised = true;
     } else if (MacroName == "UFUNCTION") {
-#if !defined(NDEBUG)
-      llvm::outs() << "[UNREAL PP] alloc: annot_unreal_ufunction\n";
-#endif
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_ufunction, nullptr));
       IsRecognised = true;
@@ -127,10 +112,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
           MALFORMED();
         }
         if (IS_LAST() || PEEK_PP_TOKEN().getKind() == tok::TokenKind::comma) {
-// This is the last standalone specifier.
-#if !defined(NDEBUG)
-          llvm::outs() << "[UNREAL PP] alloc: annot_unreal_specifier\n";
-#endif
+          // This is the last standalone specifier.
           TokensToPush.push_back(
               TokenInfo(tok::TokenKind::annot_unreal_specifier,
                         this->AllocSpecifier(SpecifierName, "")));
@@ -159,10 +141,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
           CONSUME_PP_TOKEN();
         }
         if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::identifier) {
-// Value is an identifier, like a function name.
-#if !defined(NDEBUG)
-          llvm::outs() << "[UNREAL PP] alloc: annot_unreal_specifier\n";
-#endif
+          // Value is an identifier, like a function name.
           TokensToPush.push_back(TokenInfo(
               tok::TokenKind::annot_unreal_specifier,
               this->AllocSpecifier(
@@ -173,10 +152,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
                        tok::TokenKind::string_literal ||
                    PEEK_PP_TOKEN().getKind() ==
                        tok::TokenKind::numeric_constant) {
-// Value is a string or numeric literal.
-#if !defined(NDEBUG)
-          llvm::outs() << "[UNREAL PP] alloc: annot_unreal_specifier\n";
-#endif
+          // Value is a string or numeric literal.
           TokensToPush.push_back(TokenInfo(
               tok::TokenKind::annot_unreal_specifier,
               this->AllocSpecifier(
@@ -187,10 +163,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
           SKIP_PP_TOKEN(); // We used the token.
         } else if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_true ||
                    PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_false) {
-// Value is a boolean.
-#if !defined(NDEBUG)
-          llvm::outs() << "[UNREAL PP] alloc: annot_unreal_specifier\n";
-#endif
+          // Value is a boolean.
           TokensToPush.push_back(
               TokenInfo(tok::TokenKind::annot_unreal_specifier,
                         this->AllocSpecifier(SpecifierName,
@@ -207,9 +180,6 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
           if (iequals(SpecifierName, "meta")) {
             AddAsMetadata = true;
           } else {
-#if !defined(NDEBUG)
-            llvm::outs() << "[UNREAL PP] alloc: annot_unreal_specifier\n";
-#endif
             TokensToPush.push_back(
                 TokenInfo(tok::TokenKind::annot_unreal_specifier,
                           this->AllocSpecifier(SpecifierName, "")));
@@ -234,10 +204,6 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
                 PEEK_PP_TOKEN().getKind() == tok::TokenKind::r_paren) {
               // This is the last standalone specifier.
               if (AddAsMetadata) {
-#if !defined(NDEBUG)
-                llvm::outs()
-                    << "[UNREAL PP] alloc: annot_unreal_metadata_specifier\n";
-#endif
                 TokensToPush.push_back(
                     TokenInfo(tok::TokenKind::annot_unreal_metadata_specifier,
                               this->AllocSpecifier(MetadataName.str(), "")));
@@ -274,10 +240,6 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
             if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::identifier) {
               // Value is an identifier, like a function name.
               if (AddAsMetadata) {
-#if !defined(NDEBUG)
-                llvm::outs()
-                    << "[UNREAL PP] alloc: annot_unreal_metadata_specifier\n";
-#endif
                 TokensToPush.push_back(TokenInfo(
                     tok::TokenKind::annot_unreal_metadata_specifier,
                     this->AllocSpecifier(
@@ -291,10 +253,6 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
                            tok::TokenKind::numeric_constant) {
               // Value is a string or numeric literal.
               if (AddAsMetadata) {
-#if !defined(NDEBUG)
-                llvm::outs()
-                    << "[UNREAL PP] alloc: annot_unreal_metadata_specifier\n";
-#endif
                 TokensToPush.push_back(TokenInfo(
                     tok::TokenKind::annot_unreal_metadata_specifier,
                     this->AllocSpecifier(
@@ -309,10 +267,6 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
                        PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_false) {
               // Value is a boolean.
               if (AddAsMetadata) {
-#if !defined(NDEBUG)
-                llvm::outs()
-                    << "[UNREAL PP] alloc: annot_unreal_metadata_specifier\n";
-#endif
                 TokensToPush.push_back(TokenInfo(
                     tok::TokenKind::annot_unreal_metadata_specifier,
                     this->AllocSpecifier(MetadataName.str(),
