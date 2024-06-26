@@ -1700,6 +1700,12 @@ void MatchFinder::matchAST(ASTContext &Context) {
   Visitor.onEndOfTranslationUnit();
 }
 
+void MatchFinder::matchDecl(clang::Decl *Decl, ASTContext &Context) {
+  internal::MatchASTVisitor Visitor(&Matchers, Options);
+  Visitor.set_active_ast_context(&Context);
+  Visitor.getDerived().TraverseDecl(Decl);
+}
+
 void MatchFinder::registerTestCallbackAfterParsing(
     MatchFinder::ParsingDoneTestCallback *NewParsingDone) {
   ParsingDone = NewParsingDone;
