@@ -31,7 +31,7 @@ jobs:
       uses: actions/checkout@v4
     - name: Build
       run: |
-        mkdir build/release/linux
+        mkdir -pv build/release/linux
         cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild/release/linux
         cmake --build build/release/linux --config Release -j 20
         cmake --install build/release/linux --config Release --prefix "/opt/llvm-redpoint" --strip
