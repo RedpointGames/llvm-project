@@ -8030,6 +8030,77 @@ AST_MATCHER_P(Decl, hasDeclContext, internal::Matcher<Decl>, InnerMatcher) {
   return InnerMatcher.matches(*Decl::castFromDeclContext(DC), Finder, Builder);
 }
 
+/// Matches elaborated `TypeLoc`s that have redundant namespace components.
+///
+/// Given
+/// \code
+///   namespace A::B {
+///     class D {};
+///   }
+///
+///   namespace A::C {
+///     void E() {
+///       A::B::D d;
+///     }
+///   };
+/// \endcode
+/// elaboratedTypeLoc(hasRedundantNamespacing());
+///   matches the `TypeLoc` of the variable declaration of `d`.
+AST_MATCHER(ElaboratedTypeLoc, hasRedundantNamespacing) {
+  // Check to see if this type is qualified with a namespace.
+  auto *NNS = Node.getQualifierLoc().getNestedNameSpecifier();
+  if (NNS == nullptr || !NNS->getAsNamespace()) {
+    return false;
+  }
+
+  // Find the first ancestor node that has a decl context.
+  BoundNodesTreeBuilder LocalBuilder;
+  if (!Finder->matchesAncestorOf(
+          Node, decl(hasDeclContext(anything())).bind("nearest_context"),
+          &LocalBuilder, ASTMatchFinder::AncestorMatchMode::AMM_All)) {
+    return false;
+  }
+  class NearestCollectionVisitor : public BoundNodesTreeBuilder::Visitor {
+  public:
+    const DeclContext *ReceivedDC;
+    NearestCollectionVisitor() : ReceivedDC(nullptr){};
+    virtual ~NearestCollectionVisitor() override = default;
+    virtual void visitMatch(const BoundNodes &BoundNodesView) override {
+      if (this->ReceivedDC == nullptr) {
+        if (const Decl *FD =
+                BoundNodesView.getNodeAs<Decl>("nearest_context")) {
+          this->ReceivedDC = FD->getDeclContext();
+          if (this->ReceivedDC != nullptr) {
+            this->ReceivedDC = this->ReceivedDC->getEnclosingNamespaceContext();
+          }
+        }
+      }
+    }
+  };
+  NearestCollectionVisitor Visitor;
+  LocalBuilder.visitMatches(&Visitor);
+  if (Visitor.ReceivedDC == nullptr) {
+    return false;
+  }
+
+  // Start at first leaf of NNS, and go upward to see whether any
+  // namespace elements of the NNS enclose the nearest declaration
+  // context.
+  auto *Current = NNS;
+  while (Current != nullptr &&
+         Current->getKind() == NestedNameSpecifier::Namespace) {
+    if (auto *NS = Current->getAsNamespace()) {
+      if (NS->Encloses(Visitor.ReceivedDC) && !NS->Equals(Visitor.ReceivedDC)) {
+        // Redundant! A namespace this specifier mentions already encloses the
+        // declaration context that this specifier is being used in.
+        return true;
+      }
+    }
+    Current = Current->getPrefix();
+  }
+  return false;
+}
+
 /// Matches nested name specifiers.
 ///
 /// Given
