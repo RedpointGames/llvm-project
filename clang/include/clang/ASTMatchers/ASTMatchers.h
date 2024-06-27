@@ -3947,7 +3947,8 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
   bool PermittedToExport = false;
   if (const CXXRecordDecl *CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
     if (isa<ClassTemplateDecl>(CXXD->getParent()) ||
-        isa<ClassTemplateSpecializationDecl>(CXXD->getParent())) {
+        isa<ClassTemplateSpecializationDecl>(CXXD->getParent()) ||
+        isa<ClassTemplateSpecializationDecl>(CXXD)) {
       // This type declaration is part of a template, and therefore can not be
       // exported.
       return false;
