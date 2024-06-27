@@ -386,6 +386,9 @@ void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
        Kind == tok::TokenKind::annot_unreal_uinterface ||
        Kind == tok::TokenKind::annot_unreal_uproperty)) {
     Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
+    for (const auto &Entry : UnrealStack) {
+      Diag(Entry.Loc, diag::note_unreal_data_previous_location);
+    }
     UnrealStack.clear();
   }
   if (UnrealStack.size() == 0 &&
@@ -394,7 +397,7 @@ void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
     assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
                     "macro was pushed first!");
   }
-  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData));
+  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData, TokenLoc));
   assert((UnrealStack.size() < 1000) &&
          "Unreal stack not being consumed by type declaration.");
 }

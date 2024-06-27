@@ -708,9 +708,11 @@ public:
   struct UnrealSpecifierSema {
     tok::TokenKind Kind;
     clang::UnrealSpecifier SpecData;
+    clang::SourceLocation Loc;
     UnrealSpecifierSema(tok::TokenKind InKind,
-                        const clang::UnrealSpecifier &InSpecData)
-        : Kind(InKind), SpecData(InSpecData){};
+                        const clang::UnrealSpecifier &InSpecData,
+                        const clang::SourceLocation &InLoc)
+        : Kind(InKind), SpecData(InSpecData), Loc(InLoc){};
   };
   std::vector<UnrealSpecifierSema> UnrealStack;
   std::map<std::string, CXXRecordDecl *>
