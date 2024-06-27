@@ -3967,12 +3967,11 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
         }
       }
     }
-    PermittedToExport =
-        CXXD->hasDefinition() && CXXD->getDefinition() == CXXD &&
-        !CXXD->isLambda() && CXXD->getDescribedClassTemplate() == nullptr &&
-        (CXXD->getQualifier() == nullptr ||
-         CXXD->getQualifier()->getKind() == NestedNameSpecifier::Namespace ||
-         CXXD->getQualifier()->getKind() == NestedNameSpecifier::Global);
+    PermittedToExport = CXXD->hasDefinition() &&
+                        CXXD->getDefinition() == CXXD && !CXXD->isLambda() &&
+                        CXXD->getDescribedClassTemplate() == nullptr &&
+                        (isa<TranslationUnitDecl>(CXXD->getDeclContext()) ||
+                         isa<NamespaceDecl>(CXXD->getDeclContext()));
   } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(&Node)) {
     PermittedToExport = FD->getStorageClass() != SC_Static &&
                         !FD->isInlineSpecified() && !FD->isConstexpr() &&
