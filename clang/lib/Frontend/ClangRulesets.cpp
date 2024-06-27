@@ -438,9 +438,11 @@ private:
       // Remove any effective rules that are silence, since we don't need to run
       // them at all.
       for (auto It = EffectiveConfig->EffectiveRules.begin();
-           It != EffectiveConfig->EffectiveRules.end(); ++It) {
+           It != EffectiveConfig->EffectiveRules.end();) {
         if (It->second.Severity == config::ClangRulesSeverity::CRS_Silence) {
-          EffectiveConfig->EffectiveRules.erase(It);
+          It = EffectiveConfig->EffectiveRules.erase(It);
+        } else {
+          ++It;
         }
       }
 
@@ -449,9 +451,11 @@ private:
       // __dllexport.
       if (!CI.getTarget().getTriple().isOSWindows()) {
         for (auto It = EffectiveConfig->EffectiveRules.begin();
-             It != EffectiveConfig->EffectiveRules.end(); ++It) {
+             It != EffectiveConfig->EffectiveRules.end();) {
           if (It->second.Rule->WindowsOnly) {
-            EffectiveConfig->EffectiveRules.erase(It);
+            It = EffectiveConfig->EffectiveRules.erase(It);
+          } else {
+            ++It;
           }
         }
       }
