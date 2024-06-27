@@ -56,6 +56,7 @@ struct ClangRulesRule {
   std::string Callsite;
   std::map<std::string, std::string> Hints;
   std::optional<clang::ast_matchers::internal::DynTypedMatcher> MatcherParsed;
+  bool WindowsOnly;
 };
 
 struct ClangRulesRulesetRule {
@@ -108,6 +109,7 @@ template <> struct MappingTraits<clang::rulesets::config::ClangRulesRule> {
     IO.mapRequired("ErrorMessage", Rule.ErrorMessage);
     IO.mapRequired("Callsite", Rule.Callsite);
     IO.mapOptional("Hints", Rule.Hints);
+    IO.mapOptional("WindowsOnly", Rule.WindowsOnly, false);
   }
 };
 
@@ -439,6 +441,18 @@ private:
            It != EffectiveConfig->EffectiveRules.end(); ++It) {
         if (It->second.Severity == config::ClangRulesSeverity::CRS_Silence) {
           EffectiveConfig->EffectiveRules.erase(It);
+        }
+      }
+
+      // Remove any effective rules that are Windows-only if we're not targeting
+      // Windows. This allows us to exclude rules that check things like
+      // __dllexport.
+      if (!CI.getTarget().getTriple().isOSWindows()) {
+        for (auto It = EffectiveConfig->EffectiveRules.begin();
+             It != EffectiveConfig->EffectiveRules.end(); ++It) {
+          if (It->second.Rule->WindowsOnly) {
+            EffectiveConfig->EffectiveRules.erase(It);
+          }
         }
       }
 
