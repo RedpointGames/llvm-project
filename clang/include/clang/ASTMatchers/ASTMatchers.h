@@ -3945,18 +3945,32 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
                                                         FunctionDecl,
                                                         VarDecl)) {
   bool PermittedToExport = false;
-  if (const auto &CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
+  if (const CXXRecordDecl *CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
+    if (const VarDecl *CXXDVD =
+            dyn_cast_or_null<VarDecl>(CXXD->getNextDeclInContext())) {
+      if (CXXDVD != nullptr &&
+          CXXDVD->getType()->getAsCXXRecordDecl() == CXXD) {
+        if (CXXDVD->hasAttr<DLLImportAttr>() ||
+            CXXDVD->hasAttr<DLLExportAttr>()) {
+          // This type declaration is immediately followed by a variable that
+          // uses it, and that variable is exported. This usually means an
+          // export of the kind '__declspec(dllexport) class {} A;' where the
+          // CXXRecordDecl isn't exported, but 'A' is.
+          return false;
+        }
+      }
+    }
     PermittedToExport =
         CXXD->hasDefinition() && CXXD->getDefinition() == CXXD &&
         !CXXD->isLambda() && CXXD->getDescribedClassTemplate() == nullptr &&
         (CXXD->getQualifier() == nullptr ||
          CXXD->getQualifier()->getKind() == NestedNameSpecifier::Namespace ||
          CXXD->getQualifier()->getKind() == NestedNameSpecifier::Global);
-  } else if (const auto &FD = dyn_cast<FunctionDecl>(&Node)) {
+  } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(&Node)) {
     PermittedToExport = FD->getStorageClass() != SC_Static &&
                         !FD->isInlineSpecified() && !FD->isConstexpr() &&
                         FD->isGlobal();
-  } else if (const auto &VD = dyn_cast<VarDecl>(&Node)) {
+  } else if (const VarDecl *VD = dyn_cast<VarDecl>(&Node)) {
     PermittedToExport =
         VD->hasGlobalStorage() && VD->getStorageClass() != SC_Static;
   }
