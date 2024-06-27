@@ -6,17 +6,37 @@
 #include "clang/Basic/SourceMgrAdapter.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
-#include "llvm/Support/RWMutex.h"
+#include "llvm/Support/Mutex.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/YAMLTraits.h"
 
 using namespace clang;
 
-#if 0
+#define RULESET_ENABLE_TIMING 0
+#define RULESET_ENABLE_TIMING_ALWAYS 0
+#define RULESET_ENABLE_THREADING 1
+#define RULESET_ENABLE_TRACING 0
+
+#if RULESET_ENABLE_TRACING
 #define RULESET_TRACE(x) llvm::errs() << x;
 #else
 #define RULESET_TRACE(x)
+#endif
+
+#if RULESET_ENABLE_TIMING
+#if RULESET_ENABLE_TIMING_ALWAYS
+#define RULESET_TIME_REGION(CI, Name, Timing, Timer)                           \
+  llvm::TimeRegion Name((Timing) == nullptr ? nullptr : ((Timing)->Timer.get()))
+#else
+#define RULESET_TIME_REGION(CI, Name, Timing, Timer)                           \
+  llvm::TimeRegion Name(                                                       \
+      (!(CI).hasFrontendTimer())                                               \
+          ? nullptr                                                            \
+          : ((Timing) == nullptr ? nullptr : ((Timing)->Timer.get())))
+#endif
+#else
+#define RULESET_TIME_REGION(CI, Name, Timing, Timer)
 #endif
 
 namespace clang::rulesets::config {
@@ -157,33 +177,75 @@ public:
   ClangRulesetsEffectiveConfig *EffectiveConfig;
 };
 
+class ClangRulesetsTiming {
+#if RULESET_ENABLE_TIMING
+public:
+  std::unique_ptr<llvm::TimerGroup> RulesetTimerGroup;
+  std::unique_ptr<llvm::Timer> RulesetLoadClangRulesTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisFileCheckTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisFileChangeTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisMaterializationTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisExecuteTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisScheduleTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisWaitTimer;
+
+  ClangRulesetsTiming()
+      : RulesetTimerGroup(std::make_unique<llvm::TimerGroup>(
+            "ruleset", "Clang ruleset analysis")),
+        RulesetLoadClangRulesTimer(std::make_unique<llvm::Timer>(
+            "ruleset-load", "Load .clang-rules files during preprocessor",
+            *RulesetTimerGroup)),
+        RulesetAnalysisTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis", "Full time spent in ruleset analysis",
+            *RulesetTimerGroup)),
+        RulesetAnalysisFileCheckTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-file-check",
+            "Checking whether or not the current file has changed as Decls are "
+            "iterated through",
+            *RulesetTimerGroup)),
+        RulesetAnalysisFileChangeTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-file-change",
+            "Calculating what rules should be used when the current file "
+            "changes as Decls are iterated through",
+            *RulesetTimerGroup)),
+        RulesetAnalysisMaterializationTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-materialize",
+            "Materialize loaded rules into effective rules during top-level "
+            "AST traversal",
+            *RulesetTimerGroup)),
+        RulesetAnalysisExecuteTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-execute",
+            "Time spent running scheduling work on background threads",
+            *RulesetTimerGroup)),
+        RulesetAnalysisScheduleTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-schedule",
+            "Time spent running analysis in foreground thread",
+            *RulesetTimerGroup)),
+        RulesetAnalysisWaitTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-wait",
+            "Time spent blocked waiting for analysis to complete on background "
+            "threads",
+            *RulesetTimerGroup)) {}
+#endif
+};
+
 class ClangRulesetsState {
+private:
+  clang::CompilerInstance &CI;
+
 public:
   llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState> Dirs;
 
 private:
+  std::unique_ptr<ClangRulesetsTiming> Timing;
   std::vector<ClangRulesetsEffectiveConfig *> CreatedEffectiveConfigs;
   llvm::StringMap<config::ClangRulesRule *> RuleByNamespacedName;
-  llvm::ThreadPool ThreadPool;
-  llvm::sys::SmartRWMutex<true> ThreadRWMutex;
-
-  struct MissingClangRule {
-    std::string NamespacedRulesetName;
-    std::string NamespacedRuleName;
-  };
-  std::vector<MissingClangRule> MissingClangRules;
-
-  struct DiagnosticToReport {
-    const ClangRulesetsEffectiveRule *EffectiveRule;
-    clang::SourceLocation CallsiteLoc;
-    std::vector<std::pair<clang::SourceLocation, llvm::StringRef>> HintLocs;
-  };
-  std::map<ASTContext *, std::vector<DiagnosticToReport>> DiagnosticsToReport;
 
 public:
-  ClangRulesetsState()
-      : Dirs(), CreatedEffectiveConfigs(), RuleByNamespacedName(),
-        ThreadPool(){};
+  ClangRulesetsState(clang::CompilerInstance &InCI)
+      : CI(InCI), Dirs(), Timing(std::make_unique<ClangRulesetsTiming>()),
+        CreatedEffectiveConfigs(), RuleByNamespacedName(){};
   ClangRulesetsState(const ClangRulesetsState &) = delete;
   ClangRulesetsState(ClangRulesetsState &&) = delete;
   ~ClangRulesetsState() {
@@ -192,9 +254,11 @@ public:
     }
   }
 
+  ClangRulesetsTiming *getTiming() { return this->Timing.get(); }
+
   std::unique_ptr<config::ClangRules>
-  loadClangRules_fromPreprocessor(clang::FileID &FileID,
-                                  clang::SourceManager &SrcMgr) {
+  loadClangRulesFromPreprocessor(clang::FileID &FileID,
+                                 clang::SourceManager &SrcMgr) {
     // Load the .clang-rules file.
     SourceMgrAdapter SMAdapter(
         SrcMgr, SrcMgr.getDiagnostics(), diag::err_clangrules_message,
@@ -312,8 +376,8 @@ public:
   }
 
 private:
-  void materializeDirectoryState_withinWriteLock(
-      ClangRulesetsDirectoryState &DirState) {
+  void materializeDirectoryState(ClangRulesetsDirectoryState &DirState,
+                                 ASTContext &AST) {
     assert(!DirState.Materialized);
 
     // If we have an actual on-disk configuration, we need to merge that
@@ -331,7 +395,7 @@ private:
           RULESET_TRACE("materializing: " << DirState.ParentDirectory->getName()
                                           << "\n");
           assert(&ParentState != &DirState);
-          this->materializeDirectoryState_withinWriteLock(ParentState);
+          this->materializeDirectoryState(ParentState, AST);
           RULESET_TRACE("materializing done: "
                         << DirState.ParentDirectory->getName() << "\n");
         }
@@ -352,8 +416,8 @@ private:
           // ruleset is referencing a rule that isn't known.
           auto *Rule = this->RuleByNamespacedName[RulesetRule.Name];
           if (Rule == nullptr) {
-            MissingClangRules.push_back(
-                MissingClangRule{Ruleset.Name, RulesetRule.Name});
+            AST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
+                << Ruleset.Name << RulesetRule.Name;
             StillValid = false;
           } else {
             EffectiveConfig->EffectiveRules[RulesetRule.Name] =
@@ -403,7 +467,7 @@ private:
           RULESET_TRACE("materializing: " << DirState.ParentDirectory->getName()
                                           << "\n");
           assert(&ParentState != &DirState);
-          this->materializeDirectoryState_withinWriteLock(ParentState);
+          this->materializeDirectoryState(ParentState, AST);
           RULESET_TRACE("materializing done: "
                         << DirState.ParentDirectory->getName() << "\n");
         }
@@ -417,136 +481,88 @@ private:
     }
   }
 
-  class LockableClangRulesetsState {
-  private:
-    ClangRulesetsState *State;
-
-  public:
-    LockableClangRulesetsState(ClangRulesetsState *InState) : State(InState){};
-    LockableClangRulesetsState(const LockableClangRulesetsState &) = delete;
-    LockableClangRulesetsState(LockableClangRulesetsState &&) = delete;
-    ~LockableClangRulesetsState() = default;
-
-    ClangRulesetsEffectiveConfig *
-    getEffectiveConfigForDirectoryEntry(const clang::DirectoryEntryRef &Dir) {
-      // Obtain a read lock.
-      RULESET_TRACE("getEffectiveConfigForDirectoryEntry: obtain read lock\n");
-      this->State->ThreadRWMutex.lock_shared();
-      auto DirState = State->Dirs.find(Dir);
-      if (DirState == State->Dirs.end()) {
-        // Release the read lock and return; this is not a tracked directory.
-        RULESET_TRACE(
-            "getEffectiveConfigForDirectoryEntry: release read lock\n");
-        this->State->ThreadRWMutex.unlock_shared();
-        return nullptr;
-      }
-
-      // If we haven't materialized this directory, upgrade to a
-      // write lock and then materialize.
-      if (!DirState->second.Materialized) {
-        // Upgrade to write lock.
-        RULESET_TRACE(
-            "getEffectiveConfigForDirectoryEntry: release read lock\n");
-        this->State->ThreadRWMutex.unlock_shared();
-        RULESET_TRACE(
-            "getEffectiveConfigForDirectoryEntry: obtain write lock\n");
-        this->State->ThreadRWMutex.lock();
-
-        // Check that another writer that was waiting didn't just
-        // materialize this directory state.
-        if (!DirState->second.Materialized) {
-          RULESET_TRACE("materializing inside lock: "
-                        << DirState->first.getName() << "\n");
-          State->materializeDirectoryState_withinWriteLock(DirState->second);
-          RULESET_TRACE("materializing inside lock done: "
-                        << DirState->first.getName() << "\n");
-        }
-
-        // Read the effective config pointer while still in the write lock.
-        auto *EffectiveConfig = DirState->second.EffectiveConfig;
-
-        // Now release the write lock and return.
-        RULESET_TRACE(
-            "getEffectiveConfigForDirectoryEntry: release write lock\n");
-        this->State->ThreadRWMutex.unlock();
-        return EffectiveConfig;
-      } else {
-        // Read the effective config pointer while still in the read lock.
-        auto *EffectiveConfig = DirState->second.EffectiveConfig;
-
-        // Now release the read lock and return.
-        RULESET_TRACE(
-            "getEffectiveConfigForDirectoryEntry: release read lock\n");
-        this->State->ThreadRWMutex.unlock_shared();
-        return EffectiveConfig;
-      }
-    }
-
-    void reportDiagnostic(ASTContext &AST,
-                          const DiagnosticToReport &InDiagnosticToReport) {
-      this->State->ThreadRWMutex.lock();
-      this->State->DiagnosticsToReport[&AST].push_back(InDiagnosticToReport);
-      this->State->ThreadRWMutex.unlock();
-    }
-  };
-
-public:
-  void receiveTranslationUnitForAnalysis(ASTContext &AST) {
-    // @note: Capturing AST by reference is safe here because it's the same AST
-    // that will be passed into the "wait consumer" when that runs after the
-    // main consumer is done with the AST. Since the "wait consumer" blocks on
-    // background threads, there's no way for the reference of AST to be
-    // released while it's being used on the background thread.
-    this->ThreadPool.async([this, &AST]() {
-      LockableClangRulesetsState Lockable(this);
-      RULESET_TRACE("background thread start\n");
-      this->runTranslationUnitAnalysisOnBackgroundThread(Lockable, AST);
-      RULESET_TRACE("background thread end\n");
-    });
-  }
-
-private:
   class InstantiatedMatcher {
   private:
     class InstantiatedMatcherCallback
         : public clang::ast_matchers::MatchFinder::MatchCallback {
     private:
-      LockableClangRulesetsState &State;
+#if RULESET_ENABLE_THREADING
+      llvm::sys::SmartMutex<true> &Mutex;
+#endif
       ASTContext &AST;
       const ClangRulesetsEffectiveRule &EffectiveRule;
 
     public:
       InstantiatedMatcherCallback(
-          LockableClangRulesetsState &InState, ASTContext &InAST,
-          const ClangRulesetsEffectiveRule &InEffectiveRule)
-          : State(InState), AST(InAST), EffectiveRule(InEffectiveRule){};
+#if RULESET_ENABLE_THREADING
+          llvm::sys::SmartMutex<true> &InMutex,
+#endif
+          ASTContext &InAST, const ClangRulesetsEffectiveRule &InEffectiveRule)
+          :
+#if RULESET_ENABLE_THREADING
+            Mutex(InMutex),
+#endif
+            AST(InAST), EffectiveRule(InEffectiveRule){};
 
       virtual void run(const clang::ast_matchers::MatchFinder::MatchResult
                            &Result) override {
         RULESET_TRACE("run() called for match result\n");
-        DiagnosticToReport Diagnostic = {};
-        Diagnostic.EffectiveRule = &this->EffectiveRule;
+
+#if RULESET_ENABLE_THREADING
+        // Obtain lock.
+        this->Mutex.lock();
+#endif
+
+        // Report the diagnostic on the main node.
         {
+          clang::SourceLocation CallsiteLoc;
           auto CallsiteIt =
               Result.Nodes.getMap().find(this->EffectiveRule.Rule->Callsite);
           if (CallsiteIt == Result.Nodes.getMap().end()) {
-            Diagnostic.CallsiteLoc =
-                this->AST.getTranslationUnitDecl()->getBeginLoc();
+            CallsiteLoc = this->AST.getTranslationUnitDecl()->getBeginLoc();
           } else {
-            Diagnostic.CallsiteLoc =
-                CallsiteIt->second.getSourceRange().getBegin();
+            CallsiteLoc = CallsiteIt->second.getSourceRange().getBegin();
           }
+
+          clang::DiagnosticIDs::Level DiagnosticLevel =
+              clang::DiagnosticIDs::Level::Remark;
+          switch (this->EffectiveRule.Severity) {
+          case config::ClangRulesSeverity::CRS_Silence:
+          case config::ClangRulesSeverity::CRS_Info:
+            DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
+            break;
+          case config::ClangRulesSeverity::CRS_Warning:
+          case config::ClangRulesSeverity::CRS_NotSet:
+            DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
+            break;
+          case config::ClangRulesSeverity::CRS_Error:
+            DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
+            break;
+          }
+          auto CallsiteDiagID =
+              this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+                  DiagnosticLevel, this->EffectiveRule.Rule->ErrorMessage);
+          this->AST.getDiagnostics().Report(CallsiteLoc, CallsiteDiagID);
         }
+
+        // Report any additional hints if they're present.
         for (const auto &HintKV : this->EffectiveRule.Rule->Hints) {
           auto HintIt = Result.Nodes.getMap().find(HintKV.first);
           if (HintIt != Result.Nodes.getMap().end()) {
-            Diagnostic.HintLocs.push_back(
-                std::pair<clang::SourceLocation, llvm::StringRef>(
-                    HintIt->second.getSourceRange().getBegin(),
-                    llvm::StringRef(HintKV.second)));
+            clang::SourceLocation HintLoc =
+                HintIt->second.getSourceRange().getBegin();
+
+            auto HintDiagID =
+                this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+                    clang::DiagnosticIDs::Note, HintKV.second);
+            this->AST.getDiagnostics().Report(HintLoc, HintDiagID);
           }
         }
-        this->State.reportDiagnostic(this->AST, Diagnostic);
+
+#if RULESET_ENABLE_THREADING
+        // Release lock.
+        this->Mutex.unlock();
+#endif
       }
     };
 
@@ -554,13 +570,23 @@ private:
     llvm::DenseMap<const ClangRulesetsEffectiveRule *,
                    clang::ast_matchers::MatchFinder::MatchCallback *>
         Callbacks;
-    LockableClangRulesetsState &State;
+#if RULESET_ENABLE_THREADING
+    llvm::sys::SmartMutex<true> &Mutex;
+#endif
     ASTContext &AST;
 
   public:
-    InstantiatedMatcher(LockableClangRulesetsState &InState, ASTContext &InAST)
+    InstantiatedMatcher(
+#if RULESET_ENABLE_THREADING
+        llvm::sys::SmartMutex<true> &InMutex,
+#endif
+        ASTContext &InAST)
         : Finder(std::make_unique<ast_matchers::MatchFinder>()), Callbacks(),
-          State(InState), AST(InAST) {}
+#if RULESET_ENABLE_THREADING
+          Mutex(InMutex),
+#endif
+          AST(InAST) {
+    }
     InstantiatedMatcher(const InstantiatedMatcher &) = delete;
     InstantiatedMatcher(InstantiatedMatcher &&) = delete;
     ~InstantiatedMatcher() {
@@ -575,8 +601,11 @@ private:
       }
       auto &Rule = EffectiveRule.Rule;
       if (Rule->MatcherParsed.has_value()) {
-        auto *Callback = new InstantiatedMatcherCallback(this->State, this->AST,
-                                                         EffectiveRule);
+        auto *Callback = new InstantiatedMatcherCallback(
+#if RULESET_ENABLE_THREADING
+            this->Mutex,
+#endif
+            this->AST, EffectiveRule);
         RULESET_TRACE("adding dynamic matcher to finder\n");
         this->Finder->addDynamicMatcher(*Rule->MatcherParsed, Callback);
         this->Callbacks[&EffectiveRule] = Callback;
@@ -589,8 +618,10 @@ private:
     }
   };
 
-  static void runTranslationUnitAnalysisOnBackgroundThread(
-      LockableClangRulesetsState &State, const ASTContext &AST) {
+public:
+  void runAnalysisOnTranslationUnit(ASTContext &AST) {
+    RULESET_TIME_REGION(this->CI, Timer, this->Timing, RulesetAnalysisTimer);
+
     const auto *UnitDeclEntry = AST.getTranslationUnitDecl();
     if (UnitDeclEntry == nullptr) {
       RULESET_TRACE(
@@ -601,68 +632,128 @@ private:
 
     RULESET_TRACE("starting AST analysis\n");
 
-    // Track the last file ID and last directory entry, so that as we go
+    // Track the current file ID and current effective config, so that as we go
     // over decls in the same source file, we don't need to redo lookups.
-    FileID LastFileID;
-    ClangRulesetsEffectiveConfig *LastEffectiveConfig = nullptr;
+    FileID CurrentFileID;
+    ClangRulesetsEffectiveConfig *CurrentEffectiveConfig = nullptr;
 
     // Cached callbacks.
     std::map<ClangRulesetsEffectiveConfig *, InstantiatedMatcher *>
         SharedEffectiveConfigToInstantiatedMatchers;
 
+#if RULESET_ENABLE_THREADING
+    // Set up our mutex and thread pool.
+    llvm::sys::SmartMutex<true> ThreadMutex;
+    llvm::ThreadPool ThreadPool;
+#endif
+
     // Iterate through all of the decls in the translation unit.
     for (const auto &DeclEntry : UnitDeclEntry->decls()) {
-      // Get the location of this decl.
-      FileID NewFileID = SrcMgr.getFileID(DeclEntry->getLocation());
-      if (NewFileID.isInvalid()) {
-        // Ignore any decls that have no file ID.
-        continue;
-      }
+      bool FileChanged = false;
+      {
+        RULESET_TIME_REGION(this->CI, FileCheckTimer, this->Timing,
+                            RulesetAnalysisFileCheckTimer);
 
-      // If we're not in the same file as we were previously...
-      if (NewFileID != LastFileID) {
-        // @note: We always update LastFileID, even if the calls below are
-        // unable to get valid info. This allows us to skip over decls quickly
-        // if we know the last file ID won't actually resolve anywhere.
-        LastFileID = NewFileID;
-        LastEffectiveConfig = nullptr;
-
-        // Try to get the file entry for the file ID.
-        auto FileEntry = SrcMgr.getFileEntryRefForID(NewFileID);
-        if (!FileEntry) {
+        // Get the location of this decl.
+        FileID NewFileID = SrcMgr.getFileID(DeclEntry->getLocation());
+        if (NewFileID.isInvalid()) {
+          // Ignore any decls that have no file ID.
           continue;
         }
 
-        // Get the new effective config via the lockable state.
-        LastEffectiveConfig =
-            State.getEffectiveConfigForDirectoryEntry(FileEntry->getDir());
+        // If we're not in the same file as we were previously...
+        FileChanged = (NewFileID != CurrentFileID);
+        if (FileChanged) {
+          // @note: We always update CurrentFileID, even if the calls below are
+          // unable to get valid info. This allows us to skip over decls quickly
+          // if we know the last file ID won't actually resolve anywhere.
+          CurrentFileID = NewFileID;
+          CurrentEffectiveConfig = nullptr;
+        }
+      }
+
+      if (FileChanged) {
+        RULESET_TIME_REGION(this->CI, FileChangeTimer, this->Timing,
+                            RulesetAnalysisFileChangeTimer);
+
+        // Try to get the file entry for the file ID.
+        auto FileEntry = SrcMgr.getFileEntryRefForID(CurrentFileID);
+        if (!FileEntry) {
+          // This is an unknown file - no rules apply.
+          continue;
+        }
+
+        // Get the effective configuration that should now apply.
+        auto DirState = this->Dirs.find(FileEntry->getDir());
+        if (DirState == this->Dirs.end()) {
+          // This is not a tracked directory - no rules apply.
+          continue;
+        }
+
+        // Materialize this directory if needed.
+        if (!DirState->second.Materialized) {
+          RULESET_TIME_REGION(this->CI, MaterializationTimer, this->Timing,
+                              RulesetAnalysisMaterializationTimer);
+          this->materializeDirectoryState(DirState->second, AST);
+        }
+
+        // Set effective configuration.
+        CurrentEffectiveConfig = DirState->second.EffectiveConfig;
 
         // If there is a config, instantiate the matcher we will use.
-        if (LastEffectiveConfig != nullptr) {
-          auto Matcher =
-              new InstantiatedMatcher(State, const_cast<ASTContext &>(AST));
+        if (CurrentEffectiveConfig != nullptr) {
+          auto Matcher = new InstantiatedMatcher(
+#if RULESET_ENABLE_THREADING
+              ThreadMutex,
+#endif
+              const_cast<ASTContext &>(AST));
           for (const auto &EffectiveRule :
-               LastEffectiveConfig->EffectiveRules) {
+               CurrentEffectiveConfig->EffectiveRules) {
             RULESET_TRACE("adding rule to matcher: " << EffectiveRule.first
                                                      << "\n");
             Matcher->addRule(EffectiveRule.second);
           }
           RULESET_TRACE("instantiated matcher\n");
-          SharedEffectiveConfigToInstantiatedMatchers[LastEffectiveConfig] =
+          SharedEffectiveConfigToInstantiatedMatchers[CurrentEffectiveConfig] =
               Matcher;
         }
       }
 
-      // If we have no .clang-rules effective config for this decl, skip.
-      if (LastEffectiveConfig == nullptr) {
-        continue;
-      }
+      // Only run matchers if this declaration has an effective config
+      // associated with it.
+      if (CurrentEffectiveConfig != nullptr) {
+#if RULESET_ENABLE_THREADING
+        RULESET_TIME_REGION(this->CI, ScheduleTimer, this->Timing,
+                            RulesetAnalysisScheduleTimer);
+#else
+        RULESET_TIME_REGION(this->CI, ExecuteTimer, this->Timing,
+                            RulesetAnalysisExecuteTimer);
+#endif
 
-      // Evaluate all of the matchers against this node.
-      RULESET_TRACE("executing matcher\n");
-      SharedEffectiveConfigToInstantiatedMatchers[LastEffectiveConfig]->match(
-          DeclEntry);
+        // Evaluate all of the matchers against this node.
+        RULESET_TRACE("executing matcher\n");
+        InstantiatedMatcher *Matcher =
+            SharedEffectiveConfigToInstantiatedMatchers[CurrentEffectiveConfig];
+#if RULESET_ENABLE_THREADING
+        ThreadPool.async(
+            [](Decl *DeclEntry, InstantiatedMatcher *Matcher) {
+#endif
+              Matcher->match(DeclEntry);
+#if RULESET_ENABLE_THREADING
+            },
+            DeclEntry, Matcher);
+#endif
+      }
     }
+
+#if RULESET_ENABLE_THREADING
+    // Wait for matchers to run in threads.
+    {
+      RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
+                          RulesetAnalysisWaitTimer);
+      ThreadPool.wait();
+    }
+#endif
 
     // Free all the matchers.
     for (const auto &KV : SharedEffectiveConfigToInstantiatedMatchers) {
@@ -671,61 +762,6 @@ private:
     SharedEffectiveConfigToInstantiatedMatchers.clear();
 
     RULESET_TRACE("ending AST analysis\n");
-  }
-
-public:
-  void blockUntilAnalysisOnBackgroundThreadsIsCompleteAndFlushDiagnostics(
-      ASTContext &ReceivedAST) {
-    // Wait for all current analysis to finish.
-    this->ThreadPool.wait();
-
-    // @note: We don't need to obtain a write lock here because only the main
-    // thread calls receiveTranslationUnitForAnalysis to add new tasks to the
-    // thread pool, and this function only runs on the main thread.
-
-    // Flush all pending "missing rule" diagnostics.
-    for (const auto &PendingError : this->MissingClangRules) {
-      ReceivedAST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
-          << PendingError.NamespacedRulesetName
-          << PendingError.NamespacedRuleName;
-    }
-    this->MissingClangRules.clear();
-
-    // Flush diagnostics for this AST in particular.
-    for (const auto &Diagnostic : this->DiagnosticsToReport[&ReceivedAST]) {
-      // Report the error message.
-      {
-        clang::DiagnosticIDs::Level DiagnosticLevel =
-            clang::DiagnosticIDs::Level::Remark;
-        switch (Diagnostic.EffectiveRule->Severity) {
-        case config::ClangRulesSeverity::CRS_Silence:
-        case config::ClangRulesSeverity::CRS_Info:
-          DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
-          break;
-        case config::ClangRulesSeverity::CRS_Warning:
-        case config::ClangRulesSeverity::CRS_NotSet:
-          DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
-          break;
-        case config::ClangRulesSeverity::CRS_Error:
-          DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
-          break;
-        }
-        auto CallsiteDiagID =
-            ReceivedAST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
-                DiagnosticLevel, Diagnostic.EffectiveRule->Rule->ErrorMessage);
-        ReceivedAST.getDiagnostics().Report(Diagnostic.CallsiteLoc,
-                                            CallsiteDiagID);
-      }
-
-      // Report any attached hints.
-      for (const auto &HintKV : Diagnostic.HintLocs) {
-        auto HintDiagID =
-            ReceivedAST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
-                clang::DiagnosticIDs::Note, HintKV.second);
-        ReceivedAST.getDiagnostics().Report(HintKV.first, HintDiagID);
-      }
-    }
-    this->DiagnosticsToReport.erase(&ReceivedAST);
   }
 };
 
@@ -752,9 +788,12 @@ public:
 
     auto ContainingDirectory = OptionalFileEntryRef->getDir();
     if (!State->Dirs.contains(ContainingDirectory)) {
+      RULESET_TIME_REGION(this->CI, Timer, this->State->getTiming(),
+                          RulesetLoadClangRulesTimer);
+
       // This leaf directory hasn't been seen before. We need to make an
-      // absolute path with '.' entries removed so that we can start traversing
-      // up the directory tree.
+      // absolute path with '.' entries removed so that we can start
+      // traversing up the directory tree.
       llvm::SmallString<256> LeafAbsolutePath(ContainingDirectory.getName());
       CI.getFileManager().makeAbsolutePath(LeafAbsolutePath);
       llvm::sys::path::remove_dots(LeafAbsolutePath, true);
@@ -779,10 +818,10 @@ public:
               CI.getSourceManager().getOrCreateFileID(
                   ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
           State->Dirs[ContainingDirectory].ActualOnDiskConfig =
-              State->loadClangRules_fromPreprocessor(ClangRulesFileID, SrcMgr);
+              State->loadClangRulesFromPreprocessor(ClangRulesFileID, SrcMgr);
         } else {
-          // We did not get a .clangrules file in this directory; cache that it
-          // is empty.
+          // We did not get a .clangrules file in this directory; cache that
+          // it is empty.
           State->Dirs[ContainingDirectory].ActualOnDiskConfig = nullptr;
         }
         // Modify CurrentAbsolutePath so that it contains the next parent path
@@ -814,59 +853,36 @@ public:
   }
 };
 
-class ClangRulesetsStartConsumer : public ASTConsumer {
+class ClangRulesetsConsumer : public ASTConsumer {
 private:
   std::shared_ptr<ClangRulesetsState> State;
 
 public:
-  ClangRulesetsStartConsumer(std::shared_ptr<ClangRulesetsState> InState)
+  ClangRulesetsConsumer(std::shared_ptr<ClangRulesetsState> InState)
       : State(InState){};
-  virtual ~ClangRulesetsStartConsumer() override = default;
+  virtual ~ClangRulesetsConsumer() override = default;
 
   void HandleTranslationUnit(ASTContext &AST) override {
     RULESET_TRACE("Receiving translation unit for analysis\n");
-    this->State->receiveTranslationUnitForAnalysis(AST);
+    this->State->runAnalysisOnTranslationUnit(AST);
   }
 };
 
-class ClangRulesetsWaitConsumer : public ASTConsumer {
-private:
-  std::shared_ptr<ClangRulesetsState> State;
-
-public:
-  ClangRulesetsWaitConsumer(std::shared_ptr<ClangRulesetsState> InState)
-      : State(InState){};
-  virtual ~ClangRulesetsWaitConsumer() override = default;
-
-  void HandleTranslationUnit(ASTContext &AST) override {
-    RULESET_TRACE("Blocking until translation unit analysis complete\n");
-    this->State
-        ->blockUntilAnalysisOnBackgroundThreadsIsCompleteAndFlushDiagnostics(
-            AST);
-  }
-};
-
-void ClangRulesetsProvider::CreateAndAddASTConsumers(
-    clang::CompilerInstance &CI,
-    std::vector<std::unique_ptr<ASTConsumer>> &BeforeConsumers,
-    std::vector<std::unique_ptr<ASTConsumer>> &AfterConsumers) {
-  // Create our state that will be shared across consumers and the preprocessor.
+std::unique_ptr<ASTConsumer>
+ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
+  // Create our state that will be shared across consumers and the
+  // preprocessor.
   RULESET_TRACE("Creating Clang rulesets state\n");
   std::shared_ptr<ClangRulesetsState> State =
-      std::make_shared<ClangRulesetsState>();
+      std::make_shared<ClangRulesetsState>(CI);
 
-  // Register our preprocessor callbacks, which are used to discover rulesets as
-  // files are included.
+  // Register our preprocessor callbacks, which are used to discover rulesets
+  // as files are included.
   CI.getPreprocessor().addPPCallbacks(
       std::make_unique<ClangRulesetsPPCallbacks>(State, CI));
 
-  // Create our "start consumer" and "wait consumer". Because analysis can take
-  // a long time, we run the analysis on a background thread while CodeGen is
-  // happening, and then re-join the thread later with a "wait consumer".
-  RULESET_TRACE("Attaching AST consumers\n");
-  BeforeConsumers.push_back(
-      std::make_unique<ClangRulesetsStartConsumer>(State));
-  AfterConsumers.push_back(std::make_unique<ClangRulesetsWaitConsumer>(State));
+  // Create and return our consumer for performing analysis.
+  return std::make_unique<ClangRulesetsConsumer>(State);
 }
 
 } // namespace clang::rulesets
