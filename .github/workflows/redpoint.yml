@@ -7,27 +7,69 @@ on:
     branches: [ "redpoint/*" ]
 
 jobs:
+
+  get-branch-name:
+    name: "Get Branch Name"
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.extract_branch.outputs.branch }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - id: extract_branch
+      name: Extract branch name
+      shell: bash
+      run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/redpoint/}}" >> $GITHUB_OUTPUT
+
   llvm-redpoint-linux:
     name: "Build for Linux"
+    needs:
+    - get-branch-name
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    - name: Extract branch name
-      shell: bash
-      run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/redpoint/}}" >> $GITHUB_OUTPUT
-      id: extract_branch
     - name: Build
       run: |
-        mkdir build64
-        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;clang-tools-extra;lld" -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD:STRING=X86 -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild64
-        cmake --build build64 --config Release -j 20
-        cmake --install build64 --config Release --prefix "/opt/llvm-redpoint/${{ steps.extract_branch.outputs.branch }}"
-        mv /opt/llvm-redpoint/${{ steps.extract_branch.outputs.branch }} llvm-${{ steps.extract_branch.outputs.branch }}
+        mkdir build/release/linux
+        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild/release/linux
+        cmake --build build/release/linux --config Release -j 20
+        cmake --install build/release/linux --config Release --prefix "/opt/llvm-redpoint" --strip
+        mv /opt/llvm-redpoint llvm-linux-${{ needs.get-branch-name.outputs.branch }}
     - name: "Upload LLVM"
       uses: actions/upload-artifact@v4
       with:
-        name: llvm-${{ steps.extract_branch.outputs.branch }}
+        name: llvm-linux-${{ needs.get-branch-name.outputs.branch }}
         if-no-files-found: error
         path: |
-          llvm-${{ steps.extract_branch.outputs.branch }}
+          llvm-linux-${{ needs.get-branch-name.outputs.branch }}
+
+  llvm-redpoint-windows:
+    name: "Build for Windows"
+    needs:
+    - get-branch-name
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Build
+      shell: pwsh
+      run: |
+        mkdir build\release\win64
+        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild/release/win64
+        if ($LastExitCode -ne 0) { exit $LastExitCode }
+        cmake --build build/release/win64 --config Release -j 20
+        if ($LastExitCode -ne 0) { exit $LastExitCode }
+        if (Test-Path "C:\Program Files\LLVM") {
+          Remove-Item -Force -Recurse "C:\Program Files\LLVM"
+        }
+        cmake --install build/release/win64 --config Release --strip
+        if ($LastExitCode -ne 0) { exit $LastExitCode }
+        Move-Item -Force "C:\Program Files\LLVM" llvm-win64-${{ needs.get-branch-name.outputs.branch }}
+    - name: "Upload LLVM"
+      uses: actions/upload-artifact@v4
+      with:
+        name: llvm-win64-${{ needs.get-branch-name.outputs.branch }}
+        if-no-files-found: error
+        path: |
+          llvm-win64-${{ needs.get-branch-name.outputs.branch }}
