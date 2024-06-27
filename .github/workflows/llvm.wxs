@@ -1,0 +1,23 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Language="1033"
+    Manufacturer="Redpoint Games, LLVM Contributors"
+    Name="LLVM/Clang for Unreal Engine"
+    Version="18.1.8.0"
+    UpgradeCode="a2659b1c-b3ef-43fb-9369-3c2e1ad1b825"
+  >
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="LLVM">
+      <ComponentGroupRef Id="LLVMComponent" />
+    </Feature>
+
+    <ComponentGroup Id="LLVMComponent">
+        <Files Directory="INSTALLFOLDER" Include="C:\Program Files\LLVM\**" />
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="LLVM">
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>
