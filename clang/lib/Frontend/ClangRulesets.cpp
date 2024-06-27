@@ -833,6 +833,18 @@ public:
                   ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
           State->Dirs[ContainingDirectory].ActualOnDiskConfig =
               State->loadClangRulesFromPreprocessor(ClangRulesFileID, SrcMgr);
+
+          // Add the .clang-rules to the dependencies so that external tools
+          // such as UBT know to build again when the rules file changes.
+          //
+          // @note: It's impossible for us to notify external tools of paths
+          // that *might* influence compilation if a new .clang-rules file is
+          // added to the folder hierarchy, since UBT assumes all dependencies
+          // are files that exist (so we can't even emit the directory whose
+          // last modified time would change when a file is added or deleted).
+          CI.getDependencyOutputOpts().ExtraDeps.push_back(
+              std::pair<std::string, ExtraDepKind>(
+                  ClangRulesPath, ExtraDepKind::EDK_DepFileEntry));
         } else {
           // We did not get a .clangrules file in this directory; cache that
           // it is empty.
