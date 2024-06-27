@@ -3464,7 +3464,10 @@ def warn_duplicate_codeseg_attribute : Warning<
 // @unreal: BEGIN
 def warn_unreal_data_discarded_on_new_specifier : Warning<
   "previous Unreal Engine data discarded on new specifier">,
-  InGroup<DiagGroup<"unreal-engine">>;
+  InGroup<UnrealEngine>;
+def note_unreal_data_previous_location : Note<
+  "previously discarded metadata was located here">,
+  InGroup<UnrealEngine>;
 // @unreal: END
 
 def err_anonymous_property: Error<
