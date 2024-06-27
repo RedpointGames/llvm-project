@@ -3701,6 +3701,7 @@ hasDeclaration(const internal::Matcher<Decl> &InnerMatcher) {
 }
 
 // @unreal: BEGIN
+
 /// Matches if a named decl is a UCLASS.
 ///
 /// Given
@@ -3936,6 +3937,34 @@ AST_MATCHER_P(CXXRecordDecl, withUInterface, internal::Matcher<CXXRecordDecl>,
   }
   return InnerMatcher.matches(*Node.UInterfaceAttachment, Finder, Builder);
 }
+
+/// Matches \c Decls that could have a __dllimport or __dllexport attribute, but
+/// don't.
+AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
+                        AST_POLYMORPHIC_SUPPORTED_TYPES(CXXRecordDecl,
+                                                        FunctionDecl,
+                                                        VarDecl)) {
+  bool PermittedToExport = false;
+  if (const auto &CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
+    PermittedToExport =
+        !CXXD->isLambda() && CXXD->getDescribedClassTemplate() == nullptr &&
+        (CXXD->getQualifier() == nullptr ||
+         CXXD->getQualifier()->getKind() == NestedNameSpecifier::Namespace ||
+         CXXD->getQualifier()->getKind() == NestedNameSpecifier::Global);
+  }
+  if (const auto &FD = dyn_cast<FunctionDecl>(&Node)) {
+    PermittedToExport = FD->getStorageClass() != SC_Static &&
+                        !FD->isInlineSpecified() && !FD->isConstExpr() &&
+                        FD->isGlobal();
+  }
+  if (const auto &VD = dyn_cast<VarDecl>(&Node)) {
+    PermittedToExport =
+        VD->hasGlobalStorage() && VD->getStorageClass() != SC_Static;
+  }
+  return PermittedToExport && !Node.hasAttr<DLLImportAttr>() &&
+         !Node.hasAttr<DLLExportAttr>();
+}
+
 // @unreal: END
 
 /// Matches a \c NamedDecl whose underlying declaration matches the given

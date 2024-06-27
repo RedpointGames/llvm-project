@@ -393,6 +393,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasUMetadataValue);
   REGISTER_MATCHER(withIInterface);
   REGISTER_MATCHER(withUInterface);
+  REGISTER_MATCHER(isMissingDllImportOrExport);
   // @unreal: END
   REGISTER_MATCHER(hasUnderlyingDecl);
   REGISTER_MATCHER(hasUnderlyingType);
