@@ -10,12 +10,14 @@
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/YAMLTraits.h"
+#if defined(_WIN32)
+#include "llvm/Support/Windows/WindowsSupport.h"
+#endif
 
 using namespace clang;
 
 #define RULESET_ENABLE_TIMING 0
 #define RULESET_ENABLE_TIMING_ALWAYS 0
-#define RULESET_ENABLE_THREADING 1
 #define RULESET_ENABLE_TRACING 0
 
 #if RULESET_ENABLE_TRACING
@@ -234,6 +236,7 @@ public:
 
 class ClangRulesetsState {
 private:
+  bool ThreadingEnabled;
   clang::CompilerInstance &CI;
 
 public:
@@ -245,8 +248,9 @@ private:
   llvm::StringMap<config::ClangRulesRule *> RuleByNamespacedName;
 
 public:
-  ClangRulesetsState(clang::CompilerInstance &InCI)
-      : CI(InCI), Dirs(), Timing(std::make_unique<ClangRulesetsTiming>()),
+  ClangRulesetsState(bool InThreadingEnabled, clang::CompilerInstance &InCI)
+      : ThreadingEnabled(InThreadingEnabled), CI(InCI), Dirs(),
+        Timing(std::make_unique<ClangRulesetsTiming>()),
         CreatedEffectiveConfigs(), RuleByNamespacedName(){};
   ClangRulesetsState(const ClangRulesetsState &) = delete;
   ClangRulesetsState(ClangRulesetsState &&) = delete;
@@ -504,32 +508,22 @@ private:
     class InstantiatedMatcherCallback
         : public clang::ast_matchers::MatchFinder::MatchCallback {
     private:
-#if RULESET_ENABLE_THREADING
       llvm::sys::SmartMutex<true> &Mutex;
-#endif
       ASTContext &AST;
       const ClangRulesetsEffectiveRule &EffectiveRule;
 
     public:
       InstantiatedMatcherCallback(
-#if RULESET_ENABLE_THREADING
-          llvm::sys::SmartMutex<true> &InMutex,
-#endif
-          ASTContext &InAST, const ClangRulesetsEffectiveRule &InEffectiveRule)
-          :
-#if RULESET_ENABLE_THREADING
-            Mutex(InMutex),
-#endif
-            AST(InAST), EffectiveRule(InEffectiveRule){};
+          llvm::sys::SmartMutex<true> &InMutex, ASTContext &InAST,
+          const ClangRulesetsEffectiveRule &InEffectiveRule)
+          : Mutex(InMutex), AST(InAST), EffectiveRule(InEffectiveRule){};
 
       virtual void run(const clang::ast_matchers::MatchFinder::MatchResult
                            &Result) override {
         RULESET_TRACE("run() called for match result\n");
 
-#if RULESET_ENABLE_THREADING
         // Obtain lock.
         this->Mutex.lock();
-#endif
 
         // Report the diagnostic on the main node.
         {
@@ -577,10 +571,8 @@ private:
           }
         }
 
-#if RULESET_ENABLE_THREADING
         // Release lock.
         this->Mutex.unlock();
-#endif
       }
     };
 
@@ -588,23 +580,13 @@ private:
     llvm::DenseMap<const ClangRulesetsEffectiveRule *,
                    clang::ast_matchers::MatchFinder::MatchCallback *>
         Callbacks;
-#if RULESET_ENABLE_THREADING
     llvm::sys::SmartMutex<true> &Mutex;
-#endif
     ASTContext &AST;
 
   public:
-    InstantiatedMatcher(
-#if RULESET_ENABLE_THREADING
-        llvm::sys::SmartMutex<true> &InMutex,
-#endif
-        ASTContext &InAST)
+    InstantiatedMatcher(llvm::sys::SmartMutex<true> &InMutex, ASTContext &InAST)
         : Finder(std::make_unique<ast_matchers::MatchFinder>()), Callbacks(),
-#if RULESET_ENABLE_THREADING
-          Mutex(InMutex),
-#endif
-          AST(InAST) {
-    }
+          Mutex(InMutex), AST(InAST) {}
     InstantiatedMatcher(const InstantiatedMatcher &) = delete;
     InstantiatedMatcher(InstantiatedMatcher &&) = delete;
     ~InstantiatedMatcher() {
@@ -619,11 +601,8 @@ private:
       }
       auto &Rule = EffectiveRule.Rule;
       if (Rule->MatcherParsed.has_value()) {
-        auto *Callback = new InstantiatedMatcherCallback(
-#if RULESET_ENABLE_THREADING
-            this->Mutex,
-#endif
-            this->AST, EffectiveRule);
+        auto *Callback = new InstantiatedMatcherCallback(this->Mutex, this->AST,
+                                                         EffectiveRule);
         RULESET_TRACE("adding dynamic matcher to finder\n");
         this->Finder->addDynamicMatcher(*Rule->MatcherParsed, Callback);
         this->Callbacks[&EffectiveRule] = Callback;
@@ -659,11 +638,9 @@ public:
     std::map<ClangRulesetsEffectiveConfig *, InstantiatedMatcher *>
         SharedEffectiveConfigToInstantiatedMatchers;
 
-#if RULESET_ENABLE_THREADING
     // Set up our mutex and thread pool.
     llvm::sys::SmartMutex<true> ThreadMutex;
     llvm::ThreadPool ThreadPool;
-#endif
 
     // Iterate through all of the decls in the translation unit.
     for (const auto &DeclEntry : UnitDeclEntry->decls()) {
@@ -720,11 +697,8 @@ public:
 
         // If there is a config, instantiate the matcher we will use.
         if (CurrentEffectiveConfig != nullptr) {
-          auto Matcher = new InstantiatedMatcher(
-#if RULESET_ENABLE_THREADING
-              ThreadMutex,
-#endif
-              const_cast<ASTContext &>(AST));
+          auto Matcher = new InstantiatedMatcher(ThreadMutex,
+                                                 const_cast<ASTContext &>(AST));
           for (const auto &EffectiveRule :
                CurrentEffectiveConfig->EffectiveRules) {
             RULESET_TRACE("adding rule to matcher: " << EffectiveRule.first
@@ -739,39 +713,32 @@ public:
 
       // Only run matchers if this declaration has an effective config
       // associated with it.
+      InstantiatedMatcher *Matcher =
+          SharedEffectiveConfigToInstantiatedMatchers[CurrentEffectiveConfig];
       if (CurrentEffectiveConfig != nullptr) {
-#if RULESET_ENABLE_THREADING
-        RULESET_TIME_REGION(this->CI, ScheduleTimer, this->Timing,
-                            RulesetAnalysisScheduleTimer);
-#else
-        RULESET_TIME_REGION(this->CI, ExecuteTimer, this->Timing,
-                            RulesetAnalysisExecuteTimer);
-#endif
-
         // Evaluate all of the matchers against this node.
-        RULESET_TRACE("executing matcher\n");
-        InstantiatedMatcher *Matcher =
-            SharedEffectiveConfigToInstantiatedMatchers[CurrentEffectiveConfig];
-#if RULESET_ENABLE_THREADING
-        ThreadPool.async(
-            [](Decl *DeclEntry, InstantiatedMatcher *Matcher) {
-#endif
-              Matcher->match(DeclEntry);
-#if RULESET_ENABLE_THREADING
-            },
-            DeclEntry, Matcher);
-#endif
+        if (this->ThreadingEnabled) {
+          RULESET_TIME_REGION(this->CI, ScheduleTimer, this->Timing,
+                              RulesetAnalysisScheduleTimer);
+          ThreadPool.async(
+              [](Decl *DeclEntry, InstantiatedMatcher *Matcher) {
+                Matcher->match(DeclEntry);
+              },
+              DeclEntry, Matcher);
+        } else {
+          RULESET_TIME_REGION(this->CI, ExecuteTimer, this->Timing,
+                              RulesetAnalysisExecuteTimer);
+          Matcher->match(DeclEntry);
+        }
       }
     }
 
-#if RULESET_ENABLE_THREADING
     // Wait for matchers to run in threads.
-    {
+    if (this->ThreadingEnabled) {
       RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
                           RulesetAnalysisWaitTimer);
       ThreadPool.wait();
     }
-#endif
 
     // Free all the matchers.
     for (const auto &KV : SharedEffectiveConfigToInstantiatedMatchers) {
@@ -900,11 +867,24 @@ public:
 
 std::unique_ptr<ASTConsumer>
 ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
+  bool ThreadingEnabled = true;
+#if defined(_WIN32)
+  HMODULE DetoursHandle = GetModuleHandleW(L"UbaDetours.dll");
+  if (DetoursHandle) {
+    // UBA does not like it when Clang suddenly starts doing multi-threaded
+    // work, so turn threading off in these cases. The performance hit is
+    // probably acceptable given this scenario means the build is being
+    // distributed onto remote machines.
+    RULESET_TRACE("Turning off multi-threading, detected UBA!\n");
+    ThreadingEnabled = false;
+  }
+#endif
+
   // Create our state that will be shared across consumers and the
   // preprocessor.
   RULESET_TRACE("Creating Clang rulesets state\n");
   std::shared_ptr<ClangRulesetsState> State =
-      std::make_shared<ClangRulesetsState>(CI);
+      std::make_shared<ClangRulesetsState>(ThreadingEnabled, CI);
 
   // Register our preprocessor callbacks, which are used to discover rulesets
   // as files are included.
