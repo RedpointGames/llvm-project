@@ -3974,8 +3974,8 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
     PermittedToExport =
         VD->hasGlobalStorage() && VD->getStorageClass() != SC_Static;
   }
-  return PermittedToExport && !Node.hasAttr<DLLImportAttr>() &&
-         !Node.hasAttr<DLLExportAttr>();
+  return PermittedToExport && (!Node.hasAttr<DLLImportAttr>()) &&
+         (!Node.hasAttr<DLLExportAttr>());
 }
 
 // @unreal: END
