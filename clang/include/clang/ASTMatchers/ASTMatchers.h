@@ -3947,17 +3947,16 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
   bool PermittedToExport = false;
   if (const auto &CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
     PermittedToExport =
+        CXXD->hasDefinition() && CXXD->getDefinition() == CXXD &&
         !CXXD->isLambda() && CXXD->getDescribedClassTemplate() == nullptr &&
         (CXXD->getQualifier() == nullptr ||
          CXXD->getQualifier()->getKind() == NestedNameSpecifier::Namespace ||
          CXXD->getQualifier()->getKind() == NestedNameSpecifier::Global);
-  }
-  if (const auto &FD = dyn_cast<FunctionDecl>(&Node)) {
+  } else if (const auto &FD = dyn_cast<FunctionDecl>(&Node)) {
     PermittedToExport = FD->getStorageClass() != SC_Static &&
-                        !FD->isInlineSpecified() && !FD->isConstExpr() &&
+                        !FD->isInlineSpecified() && !FD->isConstexpr() &&
                         FD->isGlobal();
-  }
-  if (const auto &VD = dyn_cast<VarDecl>(&Node)) {
+  } else if (const auto &VD = dyn_cast<VarDecl>(&Node)) {
     PermittedToExport =
         VD->hasGlobalStorage() && VD->getStorageClass() != SC_Static;
   }
