@@ -8062,16 +8062,17 @@ AST_MATCHER(ElaboratedTypeLoc, hasRedundantNamespacing) {
   }
   class NearestCollectionVisitor : public BoundNodesTreeBuilder::Visitor {
   public:
-    const DeclContext *ReceivedDC;
-    NearestCollectionVisitor() : ReceivedDC(nullptr){};
+    const NamespaceDecl *ReceivedND;
+    NearestCollectionVisitor() : ReceivedND(nullptr){};
     virtual ~NearestCollectionVisitor() override = default;
     virtual void visitMatch(const BoundNodes &BoundNodesView) override {
-      if (this->ReceivedDC == nullptr) {
+      if (this->ReceivedND == nullptr) {
         if (const Decl *FD =
                 BoundNodesView.getNodeAs<Decl>("nearest_context")) {
-          this->ReceivedDC = FD->getDeclContext();
-          if (this->ReceivedDC != nullptr) {
-            this->ReceivedDC = this->ReceivedDC->getEnclosingNamespaceContext();
+          const DeclContext *DC = FD->getDeclContext();
+          if (DC != nullptr) {
+            this->ReceivedND =
+                cast<NamespaceDecl>(DC->getEnclosingNamespaceContext());
           }
         }
       }
@@ -8079,24 +8080,72 @@ AST_MATCHER(ElaboratedTypeLoc, hasRedundantNamespacing) {
   };
   NearestCollectionVisitor Visitor;
   LocalBuilder.visitMatches(&Visitor);
-  if (Visitor.ReceivedDC == nullptr) {
+  if (Visitor.ReceivedND == nullptr) {
     return false;
+  }
+
+  // Record all of the identifiers and the namespace decls that make
+  // up the hierarchy of our namespace decl context. We use this to detect
+  // when a type specification might be deeply specifying to avoid
+  // ambiguity issues.
+  llvm::DenseMap<llvm::StringRef, llvm::SmallDenseSet<const NamespaceDecl *, 4>>
+      NamespacesInContextHierarchy;
+  {
+    const NamespaceDecl *NS = Visitor.ReceivedND;
+    while (NS != nullptr) {
+      if (auto *II = NS->getIdentifier()) {
+        NamespacesInContextHierarchy[II->getName()].insert(NS);
+      }
+      auto *NSP = NS->getParent();
+      while (NSP != nullptr && !isa<NamespaceDecl>(NSP)) {
+        NSP = NSP->getParent();
+      }
+      if (NSP) {
+        NS = cast<NamespaceDecl>(NSP);
+      } else {
+        break;
+      }
+    }
   }
 
   // Start at first leaf of NNS, and go upward to see whether any
   // namespace elements of the NNS enclose the nearest declaration
   // context.
-  auto *Current = NNS;
-  while (Current != nullptr &&
-         Current->getKind() == NestedNameSpecifier::Namespace) {
-    if (auto *NS = Current->getAsNamespace()) {
-      if (NS->Encloses(Visitor.ReceivedDC) && !NS->Equals(Visitor.ReceivedDC)) {
-        // Redundant! A namespace this specifier mentions already encloses the
-        // declaration context that this specifier is being used in.
-        return true;
+  {
+    auto *Current = NNS;
+    bool Disambiguating = false;
+    while (Current != nullptr &&
+           Current->getKind() == NestedNameSpecifier::Namespace) {
+      if (auto *NS = Current->getAsNamespace()) {
+        if (auto *II = NS->getIdentifier()) {
+          if (NamespacesInContextHierarchy[II->getName()].size() > 0) {
+            // The current namespace component in our type specifier matches
+            // the name in our hierarchy.
+            if (!NamespacesInContextHierarchy[II->getName()].contains(NS)) {
+              // The name in our type specifier points to a different namespace
+              // than the one in our hierarchy, so the parent of this specifier
+              // will be disambiguating.
+              Disambiguating = true;
+            }
+          }
+        }
+
+        if (NS->Encloses(Visitor.ReceivedND) &&
+            !NS->Equals(Visitor.ReceivedND)) {
+          if (Disambiguating) {
+            // We need to disambiguate, so allow one entry in the type specifier
+            // to be "redundant" (really it's just re-anchoring the specifiers
+            // that come after it though).
+            Disambiguating = false;
+          } else {
+            // Redundant! A namespace this specifier mentions already encloses
+            // the declaration context that this specifier is being used in.
+            return true;
+          }
+        }
       }
+      Current = Current->getPrefix();
     }
-    Current = Current->getPrefix();
   }
   return false;
 }
