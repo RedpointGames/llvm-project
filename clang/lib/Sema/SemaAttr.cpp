@@ -54,19 +54,6 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
 void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
   if (this->UnrealStack.size() > 0) {
     if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
-      if (dyn_cast<FieldDecl>(ND) != nullptr ||
-          dyn_cast<CXXMethodDecl>(ND) != nullptr ||
-          dyn_cast<RecordDecl>(ND) != nullptr) {
-#if !defined(NDEBUG)
-        llvm::outs() << "[UNREAL STACK] hit: " << ND->getDeclKindName() << "\n";
-        for (const auto &Val : this->UnrealStack) {
-          llvm::outs() << "[UNREAL STACK] consume: "
-                       << tok::getTokenName(Val.Kind) << " '"
-                       << Val.SpecData.SpecifierName << "' = '"
-                       << Val.SpecData.SpecifierValue << "'\n";
-        }
-#endif
-      }
       if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
         if (this->UnrealStack[0].Kind == tok::annot_unreal_uproperty) {
           ND->UnrealType = UnrealType::UT_UProperty;
@@ -374,11 +361,13 @@ void Sema::ActOnPragmaClangSection(SourceLocation PragmaLoc,
 // @unreal: BEGIN
 void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
                            const UnrealSpecifier &UnrealData) {
-#if !defined(NDEBUG)
-  llvm::outs() << "[UNREAL STACK] push: " << tok::getTokenName(Kind) << " '"
-               << UnrealData.SpecifierName << "' = '"
-               << UnrealData.SpecifierValue << "'\n";
-#endif
+  if (Kind == tok::TokenKind::annot_unreal_uinterface &&
+      UnrealStack.size() == 1 &&
+      UnrealStack[0].Kind == tok::TokenKind::annot_unreal_uclass) {
+    // This is an expected scenario because the UINTERFACE macro maps
+    // to 'UCLASS()' during actual compilation.
+    UnrealStack.clear();
+  }
   if (UnrealStack.size() != 0 &&
       (Kind == tok::TokenKind::annot_unreal_uclass ||
        Kind == tok::TokenKind::annot_unreal_ufunction ||
