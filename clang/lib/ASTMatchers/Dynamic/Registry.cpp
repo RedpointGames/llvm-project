@@ -394,6 +394,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(withIInterface);
   REGISTER_MATCHER(withUInterface);
   REGISTER_MATCHER(isMissingDllImportOrExport);
+  REGISTER_MATCHER(hasRedundantNamespacing);
   // @unreal: END
   REGISTER_MATCHER(hasUnderlyingDecl);
   REGISTER_MATCHER(hasUnderlyingType);
