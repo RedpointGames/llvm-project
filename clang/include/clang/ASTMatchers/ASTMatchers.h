@@ -3946,6 +3946,11 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
                                                         VarDecl)) {
   bool PermittedToExport = false;
   if (const CXXRecordDecl *CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
+    if (isa<ClassTemplateDecl>(CXXD->getParent())) {
+      // This type declaration is part of a template, and therefore can not be
+      // exported.
+      return false;
+    }
     if (const VarDecl *CXXDVD =
             dyn_cast_or_null<VarDecl>(CXXD->getNextDeclInContext())) {
       if (CXXDVD != nullptr &&
@@ -3974,8 +3979,8 @@ AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
     PermittedToExport =
         VD->hasGlobalStorage() && VD->getStorageClass() != SC_Static;
   }
-  return PermittedToExport && (!Node.hasAttr<DLLImportAttr>()) &&
-         (!Node.hasAttr<DLLExportAttr>());
+  return PermittedToExport && (!(Node.hasAttr<DLLImportAttr>())) &&
+         (!(Node.hasAttr<DLLExportAttr>()));
 }
 
 // @unreal: END
