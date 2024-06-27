@@ -32,7 +32,17 @@ jobs:
     - name: Build
       run: |
         mkdir -pv build/release/linux
-        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild/release/linux
+        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" \
+          -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE \
+          -DLLVM_INCLUDE_BENCHMARKS:BOOL=FALSE \
+          -DLLVM_INCLUDE_DOCS:BOOL=FALSE \
+          -DLLVM_INCLUDE_EXAMPLES:BOOL=FALSE \
+          -DLLVM_INCLUDE_TESTS:BOOL=FALSE \
+          -DCLANG_INCLUDE_TESTS:BOOL=FALSE \
+          -DCLANG_INCLUDE_DOCS:BOOL=FALSE \
+          -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE \
+          -DCMAKE_BUILD_TYPE=Release \
+          -Hllvm -Bbuild/release/linux
         cmake --build build/release/linux --config Release -j 20
         cmake --install build/release/linux --config Release --prefix "/opt/llvm-redpoint" --strip
         mv /opt/llvm-redpoint llvm-linux-${{ needs.get-branch-name.outputs.branch }}
@@ -56,7 +66,17 @@ jobs:
       shell: pwsh
       run: |
         mkdir build\release\win64
-        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -Hllvm -Bbuild/release/win64
+        cmake "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" `
+          -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE `
+          -DLLVM_INCLUDE_BENCHMARKS:BOOL=FALSE `
+          -DLLVM_INCLUDE_DOCS:BOOL=FALSE `
+          -DLLVM_INCLUDE_EXAMPLES:BOOL=FALSE `
+          -DLLVM_INCLUDE_TESTS:BOOL=FALSE `
+          -DCLANG_INCLUDE_TESTS:BOOL=FALSE `
+          -DCLANG_INCLUDE_DOCS:BOOL=FALSE `
+          -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE `
+          -DCMAKE_BUILD_TYPE=Release `
+          -Hllvm -Bbuild/release/win64
         if ($LastExitCode -ne 0) { exit $LastExitCode }
         cmake --build build/release/win64 --config Release -j 20
         if ($LastExitCode -ne 0) { exit $LastExitCode }
