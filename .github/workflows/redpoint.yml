@@ -29,7 +29,7 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    - name: Build
+    - name: Generate
       run: |
         mkdir -pv build/release/linux
         cmake \
@@ -44,8 +44,14 @@ jobs:
           -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE \
           -DCMAKE_BUILD_TYPE=Release \
           -Hllvm -Bbuild/release/linux
+    - name: Build
+      run: |
         cmake --build build/release/linux --config Release -j 20
+    - name: Install
+      run: |
         cmake --install build/release/linux --config Release --prefix "/opt/llvm-redpoint" --strip
+    - name: "Prepare for Upload"
+      run: |
         mv /opt/llvm-redpoint llvm-linux-${{ needs.get-branch-name.outputs.branch }}
     - name: "Upload LLVM"
       uses: actions/upload-artifact@v4
@@ -63,7 +69,12 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    - name: Build
+    - name: Install Wix Toolset
+      shell: pwsh
+      run: |
+        dotnet tool install --global wix
+        if ($LastExitCode -ne 0) { exit $LastExitCode }
+    - name: Generate
       shell: pwsh
       run: |
         mkdir build\release\win64
@@ -80,18 +91,39 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release `
           -Hllvm -Bbuild/release/win64
         if ($LastExitCode -ne 0) { exit $LastExitCode }
+    - name: Build
+      shell: pwsh
+      run: |
         cmake --build build/release/win64 --config Release -j 20
         if ($LastExitCode -ne 0) { exit $LastExitCode }
+    - name: Install
+      shell: pwsh
+      run: |
         if (Test-Path "C:\Program Files\LLVM") {
           Remove-Item -Force -Recurse "C:\Program Files\LLVM"
         }
         cmake --install build/release/win64 --config Release --strip
         if ($LastExitCode -ne 0) { exit $LastExitCode }
+    - name: "Generate MSI"
+      shell: pwsh
+      run: |
+        wix build .github\workflows\llvm.wxs
+        if ($LastExitCode -ne 0) { exit $LastExitCode }
+    - name: "Prepare for Upload"
+      shell: pwsh
+      run: |
         Move-Item -Force "C:\Program Files\LLVM" llvm-win64-${{ needs.get-branch-name.outputs.branch }}
-    - name: "Upload LLVM"
+    - name: "Upload LLVM ZIP"
       uses: actions/upload-artifact@v4
       with:
         name: llvm-win64-${{ needs.get-branch-name.outputs.branch }}
         if-no-files-found: error
         path: |
           llvm-win64-${{ needs.get-branch-name.outputs.branch }}
+    - name: "Upload LLVM MSI"
+      uses: actions/upload-artifact@v4
+      with:
+        name: llvm-win64-msi-${{ needs.get-branch-name.outputs.branch }}
+        if-no-files-found: error
+        path: |
+          .github/workflows/llvm.msi
