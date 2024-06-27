@@ -222,9 +222,9 @@ FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
     }
   }
 
-  // Add rulesets consumer around the main consumer.
-  clang::rulesets::ClangRulesetsProvider::CreateAndAddASTConsumers(
-      CI, Consumers, AfterConsumers);
+  // Add rulesets consumer prior to code generation.
+  Consumers.push_back(
+      clang::rulesets::ClangRulesetsProvider::CreateASTConsumer(CI));
 
   // Add to Consumers the main consumer, then all the plugins that go after it
   Consumers.push_back(std::move(Consumer));

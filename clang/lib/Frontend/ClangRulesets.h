@@ -7,10 +7,8 @@ namespace clang::rulesets {
 
 class ClangRulesetsProvider {
 public:
-  static void CreateAndAddASTConsumers(
-      clang::CompilerInstance &CI,
-      std::vector<std::unique_ptr<ASTConsumer>> &BeforeConsumers,
-      std::vector<std::unique_ptr<ASTConsumer>> &AfterConsumers);
+  static std::unique_ptr<ASTConsumer>
+  CreateASTConsumer(clang::CompilerInstance &CI);
 };
 
 } // namespace clang::rulesets
