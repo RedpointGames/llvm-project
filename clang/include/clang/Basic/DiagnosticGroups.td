@@ -1745,6 +1745,10 @@ def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInCon
 // Warnings and notes InstallAPI verification.
 def InstallAPIViolation : DiagGroup<"installapi-violation">;
 
+// @unreal: BEGIN
+def UnrealEngine : DiagGroup<"unreal-engine">;
+// @unreal: END
+
 // Warnings related to _BitInt extension
 def BitIntExtension : DiagGroup<"bit-int-extension">;
 
