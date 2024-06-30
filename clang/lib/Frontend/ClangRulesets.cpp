@@ -43,38 +43,110 @@ using namespace clang;
 
 namespace clang::rulesets::config {
 
+/// The severity level that diagnostics should emit at for a particular Clang
+/// rule or ruleset.
 enum ClangRulesSeverity : int8_t {
+  /// The severity level is not set, which indicates a default of 'Warning' in
+  /// configuration files.
   CRS_NotSet,
+  /// This rule is silenced and will not be evaluated. You can use this to
+  /// silence rules in a more
+  /// deeply nested .clang-rules file where that rule was activated by a
+  /// .clang-rules file higher
+  /// in the filesystem hierarchy.
   CRS_Silence,
+  /// Diagnostics will be emitted at the 'remark' level.
   CRS_Info,
+  /// Diagnostics will be emitted at the 'warning' level.
   CRS_Warning,
+  /// Diagnostics will be emitted at the 'error' level.
   CRS_Error,
 };
 
+/// Defines a static analysis rule to run during compilation.
 struct ClangRulesRule {
+  /// The unique name of the rule sans namespace. You can reference rules in
+  /// rulesets by this name when in the same namespace, or by `namespace/name`
+  /// from rulesets in other namespaces.
   std::string Name;
+  /// The Clang AST matcher to evaluate against top-level declarations in the
+  /// AST.
   std::string Matcher;
+  /// The compiler diagnostic message to emit at the callsite when this static
+  /// analysis rule matches.
   std::string ErrorMessage;
+  /// The name of the bound node in the matcher which indicates the location to
+  /// emit the compiler diagnostic at.
   std::string Callsite;
+  /// Additional hint diagnostics to emit when this static analysis rule
+  /// matches. The key is the name of the bound node in the matcher and the
+  /// value is the diagnostic message to emit (at 'note' severity).
   std::map<std::string, std::string> Hints;
+  /// The runtime matcher value after the matcher expression has been parsed and
+  /// loaded by Clang.
   std::optional<clang::ast_matchers::internal::DynTypedMatcher> MatcherParsed;
+  /// If true, this rule only applies when the compilation triple targets
+  /// Windows. This can be used for rules which match on Windows-specific AST
+  /// nodes (such as '__declspec(dllexport)').
   bool WindowsOnly;
 };
 
+/// A mapping from a ruleset to the previously defined rule and severity to
+/// raise it at. Rule entries in rulesets can be declared matching this
+/// structure, or they can declared as a string which will be implicitly mapped
+/// to the 'Name' field, with 'Severity' set to 'NotSet' (which means it will
+/// inherit from the ruleset's default severity).
 struct ClangRulesRulesetRule {
+  /// Either 'name' for rules defined in the same namespace, or 'namespace/name'
+  /// for rules defined in other namespaces.
   std::string Name;
+  /// The severity to emit the rule at when it matches.
   ClangRulesSeverity Severity;
 };
 
+/// A mapping from a ruleset to another previously defined ruleset. Ruleset
+/// entries in rulesets can be declared matching this structure, or they can
+/// declared as a string which will be implicitly mapped to the 'Name' field,.
+struct ClangRulesRulesetRuleset {
+  /// Either 'name' for rulesets defined in the same namespace, or
+  /// 'namespace/name' for rulesets defined in other namespaces.
+  std::string Name;
+};
+
+/// Defines a static analysis ruleset to apply to this directory and
+/// subdirectories, with a set of rules to enable and/or set the severity of.
 struct ClangRulesRuleset {
+  /// The unique name of the ruleset sans namespace. You can reference rulesets
+  /// in other rulesets by this name when in the same namespace, or by
+  /// `namespace/name` from rulesets in other namespaces.
   std::string Name;
+  /// The default severity for rule diagnostics to emit at for rules included by
+  /// this ruleset. This is the severity used when an entry in the 'Rules' array
+  /// does not have a specific severity.
   ClangRulesSeverity Severity;
+  /// The rules to enable or update the severity of when this ruleset is active.
   std::vector<ClangRulesRulesetRule> Rules;
+  /// The rulesets to include as part of this ruleset when this ruleset is
+  /// active.
+  std::vector<ClangRulesRulesetRuleset> Rulesets;
+  /// By default, rulesets in a .clang-rules file are both defined and made
+  /// active for the directory and subdirectories it's declared in. If you set
+  /// 'DefineOnly: true' for a ruleset, then the ruleset is defined and
+  /// available to use in .clang-rules files more deeply nested in the
+  /// hierarchy, but won't be activated for the directory it's defined in. This
+  /// allows you to declare a ruleset and use it in more deeply nested rulesets.
+  bool DefineOnly;
 };
 
+/// Maps to a configuration provided by a .clang-rules file.
 struct ClangRules {
+  /// The namespace of rules and rulesets defined in this configuration
+  /// document.
   std::string Namespace;
+  /// The list of rules that are defined in this document. Rules do not apply
+  /// unless they're enabled by a ruleset.
   std::vector<ClangRulesRule> Rules;
+  /// The list of rulesets that are defined in this document.
   std::vector<ClangRulesRuleset> Rulesets;
 };
 
@@ -82,8 +154,10 @@ struct ClangRules {
 
 LLVM_YAML_IS_STRING_MAP(std::string);
 LLVM_YAML_IS_SEQUENCE_VECTOR(clang::rulesets::config::ClangRulesRulesetRule);
+LLVM_YAML_IS_SEQUENCE_VECTOR(clang::rulesets::config::ClangRulesRulesetRuleset);
 LLVM_YAML_IS_SEQUENCE_VECTOR(clang::rulesets::config::ClangRulesRule);
 LLVM_YAML_IS_SEQUENCE_VECTOR(clang::rulesets::config::ClangRulesRuleset);
+LLVM_YAML_IS_DOCUMENT_LIST_VECTOR(clang::rulesets::config::ClangRules);
 
 namespace llvm::yaml {
 
@@ -134,13 +208,31 @@ struct MappingTraits<clang::rulesets::config::ClangRulesRulesetRule> {
   }
 };
 
+template <>
+struct MappingTraits<clang::rulesets::config::ClangRulesRulesetRuleset> {
+  static void
+  mapping(IO &IO, clang::rulesets::config::ClangRulesRulesetRuleset &Ruleset) {
+    if (IO.getNodeKind() == NodeKind::Scalar) {
+      // Allow rulesets for rulesets to be encoded as plain strings.
+      llvm::StringRef RuleName = Ruleset.Name;
+      IO.scalarString(RuleName, QuotingType::Double);
+      Ruleset.Name = RuleName;
+    } else {
+      // Allow rulessets for rulesets to specify name.
+      IO.mapRequired("Name", Ruleset.Name);
+    }
+  }
+};
+
 template <> struct MappingTraits<clang::rulesets::config::ClangRulesRuleset> {
   static void mapping(IO &IO,
                       clang::rulesets::config::ClangRulesRuleset &Ruleset) {
     IO.mapRequired("Name", Ruleset.Name);
     IO.mapOptional("Severity", Ruleset.Severity,
                    clang::rulesets::config::ClangRulesSeverity::CRS_Warning);
-    IO.mapRequired("Rules", Ruleset.Rules);
+    IO.mapOptional("Rules", Ruleset.Rules);
+    IO.mapOptional("Rulesets", Ruleset.Rulesets);
+    IO.mapOptional("DefineOnly", Ruleset.DefineOnly, false);
   }
 };
 
@@ -169,8 +261,9 @@ struct ClangRulesetsEffectiveConfig {
 struct ClangRulesetsDirectoryState {
 public:
   // If this directory contained a .clang-rules file, this is the on-disk
-  // configuration that was loaded.
-  std::unique_ptr<config::ClangRules> ActualOnDiskConfig;
+  // configurations that were loaded (the YAML file may contain multiple
+  // configuration documents, so this is a vector).
+  std::unique_ptr<std::vector<config::ClangRules>> ActualOnDiskConfigs;
   // The parent directory of this directory, if this directory is not
   // a root.
   OptionalDirectoryEntryRef ParentDirectory;
@@ -246,12 +339,14 @@ private:
   std::unique_ptr<ClangRulesetsTiming> Timing;
   std::vector<ClangRulesetsEffectiveConfig *> CreatedEffectiveConfigs;
   llvm::StringMap<config::ClangRulesRule *> RuleByNamespacedName;
+  llvm::StringMap<config::ClangRulesRuleset *> RulesetByNamespacedName;
 
 public:
   ClangRulesetsState(bool InThreadingEnabled, clang::CompilerInstance &InCI)
       : ThreadingEnabled(InThreadingEnabled), CI(InCI), Dirs(),
         Timing(std::make_unique<ClangRulesetsTiming>()),
-        CreatedEffectiveConfigs(), RuleByNamespacedName(){};
+        CreatedEffectiveConfigs(), RuleByNamespacedName(),
+        RulesetByNamespacedName(){};
   ClangRulesetsState(const ClangRulesetsState &) = delete;
   ClangRulesetsState(ClangRulesetsState &&) = delete;
   ~ClangRulesetsState() {
@@ -262,105 +357,138 @@ public:
 
   ClangRulesetsTiming *getTiming() { return this->Timing.get(); }
 
-  std::unique_ptr<config::ClangRules>
+  std::unique_ptr<std::vector<config::ClangRules>>
   loadClangRulesFromPreprocessor(clang::FileID &FileID,
                                  clang::SourceManager &SrcMgr) {
-    // Load the .clang-rules file.
+    // Set up our YAML parser.
     SourceMgrAdapter SMAdapter(
         SrcMgr, SrcMgr.getDiagnostics(), diag::err_clangrules_message,
         diag::warn_clangrules_message, diag::note_clangrules_message,
         SrcMgr.getFileEntryRefForID(FileID));
-    std::unique_ptr<config::ClangRules> LoadedRules =
-        std::make_unique<config::ClangRules>();
     llvm::yaml::Input YamlParse(SrcMgr.getBufferData(FileID), nullptr,
                                 SMAdapter.getDiagHandler(),
                                 SMAdapter.getDiagContext());
-    YamlParse >> *LoadedRules;
+
+    // Parse all of the YAML documents, with each one being a ClangRules
+    // configuration. This allows developers to put multiple namespaced
+    // rules/ruleset documents into a single YAML file.
+    std::unique_ptr<std::vector<config::ClangRules>> LoadedDocuments =
+        std::make_unique<std::vector<config::ClangRules>>();
+    YamlParse >> *LoadedDocuments;
     if (YamlParse.error()) {
       return nullptr;
     }
 
-    // Track whether the loaded rules are still valid.
+    // Track whether the rules in all the documents are still valid.
     bool StillValid = true;
 
-    // Go through rules, make sure they aren't already prefixed, and then update
-    // our in-memory version of the rules file to prefix them with the
-    // namespace.
-    for (auto &Rule : LoadedRules->Rules) {
-      if (Rule.Name.find('/') != std::string::npos) {
-        SrcMgr.getDiagnostics().Report(
-            SrcMgr.getLocForStartOfFile(FileID),
-            diag::err_clangrules_rule_name_is_prefixed)
-            << Rule.Name;
-        StillValid = false;
-        continue;
-      }
-      std::string NamespacedName = LoadedRules->Namespace;
-      NamespacedName.append("/");
-      NamespacedName.append(Rule.Name);
-      Rule.Name = NamespacedName;
-
-      // Make sure this namespaced rule name isn't already taken.
-      if (this->RuleByNamespacedName[Rule.Name] != nullptr) {
-        SrcMgr.getDiagnostics().Report(SrcMgr.getLocForStartOfFile(FileID),
-                                       diag::err_clangrules_rule_name_conflict)
-            << Rule.Name;
-        StillValid = false;
-        continue;
-      }
-
-      // Attempt to parse the matcher expression.
-      {
-        clang::ast_matchers::dynamic::Diagnostics ParseDiag;
-        llvm::StringRef MatcherRef(Rule.Matcher);
-        Rule.MatcherParsed =
-            clang::ast_matchers::dynamic::Parser::parseMatcherExpression(
-                MatcherRef, &ParseDiag);
-        if (!Rule.MatcherParsed.has_value()) {
+    // Iterate through all of the documents and load them.
+    for (auto &Document : *LoadedDocuments) {
+      // Go through rules, make sure they aren't already prefixed, and then
+      // update our in-memory version of the rules file to prefix them with the
+      // namespace.
+      for (auto &Rule : Document.Rules) {
+        if (Rule.Name.find('/') != std::string::npos) {
           SrcMgr.getDiagnostics().Report(
               SrcMgr.getLocForStartOfFile(FileID),
-              diag::err_clangrules_rule_matcher_parse_failure)
-              << NamespacedName << ParseDiag.toStringFull();
+              diag::err_clangrules_rule_name_is_prefixed)
+              << Rule.Name;
           StillValid = false;
           continue;
         }
-      }
-    }
-
-    // Go through rulesets and namespace both their name and any unprefixed
-    // rules they enable, and normalize the severity on rules using the
-    // default severity if it's not set.
-    for (auto &Ruleset : LoadedRules->Rulesets) {
-      if (Ruleset.Name.find('/') != std::string::npos) {
-        SrcMgr.getDiagnostics().Report(
-            SrcMgr.getLocForStartOfFile(FileID),
-            diag::err_clangrules_ruleset_name_is_prefixed)
-            << Ruleset.Name;
-        StillValid = false;
-      } else {
-        std::string NamespacedName = LoadedRules->Namespace;
+        std::string NamespacedName = Document.Namespace;
         NamespacedName.append("/");
-        NamespacedName.append(Ruleset.Name);
-        Ruleset.Name = NamespacedName;
-      }
-      if (Ruleset.Severity ==
-          clang::rulesets::config::ClangRulesSeverity::CRS_NotSet) {
-        SrcMgr.getDiagnostics().Report(
-            SrcMgr.getLocForStartOfFile(FileID),
-            diag::err_clangrules_ruleset_severity_is_notset)
-            << Ruleset.Name;
-        StillValid = false;
-      }
-      for (auto &Rule : Ruleset.Rules) {
-        if (Rule.Name.find('/') == std::string::npos) {
-          std::string NamespacedName = LoadedRules->Namespace;
-          NamespacedName.append("/");
-          NamespacedName.append(Rule.Name);
-          Rule.Name = NamespacedName;
+        NamespacedName.append(Rule.Name);
+        Rule.Name = NamespacedName;
+
+        // Make sure this namespaced rule name isn't already taken.
+        if (this->RuleByNamespacedName[Rule.Name] != nullptr) {
+          SrcMgr.getDiagnostics().Report(
+              SrcMgr.getLocForStartOfFile(FileID),
+              diag::err_clangrules_rule_name_conflict)
+              << Rule.Name;
+          StillValid = false;
+          continue;
         }
-        if (Rule.Severity ==
+
+        // Attempt to parse the matcher expression.
+        {
+          clang::ast_matchers::dynamic::Diagnostics ParseDiag;
+          llvm::StringRef MatcherRef(Rule.Matcher);
+          Rule.MatcherParsed =
+              clang::ast_matchers::dynamic::Parser::parseMatcherExpression(
+                  MatcherRef, &ParseDiag);
+          if (!Rule.MatcherParsed.has_value()) {
+            SrcMgr.getDiagnostics().Report(
+                SrcMgr.getLocForStartOfFile(FileID),
+                diag::err_clangrules_rule_matcher_parse_failure)
+                << NamespacedName << ParseDiag.toStringFull();
+            StillValid = false;
+            continue;
+          }
+        }
+      }
+
+      // Go through rulesets and namespace both their name and any unprefixed
+      // rules they enable, and normalize the severity on rules using the
+      // default severity if it's not set.
+      for (auto &Ruleset : Document.Rulesets) {
+        if (Ruleset.Name.find('/') != std::string::npos) {
+          SrcMgr.getDiagnostics().Report(
+              SrcMgr.getLocForStartOfFile(FileID),
+              diag::err_clangrules_ruleset_name_is_prefixed)
+              << Ruleset.Name;
+          StillValid = false;
+        } else {
+          std::string NamespacedName = Document.Namespace;
+          NamespacedName.append("/");
+          NamespacedName.append(Ruleset.Name);
+          Ruleset.Name = NamespacedName;
+        }
+
+        // Make sure this namespaced ruleset name isn't already taken.
+        if (this->RulesetByNamespacedName[Ruleset.Name] != nullptr) {
+          SrcMgr.getDiagnostics().Report(
+              SrcMgr.getLocForStartOfFile(FileID),
+              diag::err_clangrules_rule_name_conflict)
+              << Ruleset.Name;
+          StillValid = false;
+          continue;
+        }
+
+        // Prevent the ruleset severity from being explicitly set as 'NotSet'.
+        if (Ruleset.Severity ==
             clang::rulesets::config::ClangRulesSeverity::CRS_NotSet) {
-          Rule.Severity = Ruleset.Severity;
+          SrcMgr.getDiagnostics().Report(
+              SrcMgr.getLocForStartOfFile(FileID),
+              diag::err_clangrules_ruleset_severity_is_notset)
+              << Ruleset.Name;
+          StillValid = false;
+        }
+
+        // Namespace all of the rule entries and set the severity of the rule to
+        // that of the ruleset if the rule doesn't explicitly set a severity.
+        for (auto &Rule : Ruleset.Rules) {
+          if (Rule.Name.find('/') == std::string::npos) {
+            std::string NamespacedName = Document.Namespace;
+            NamespacedName.append("/");
+            NamespacedName.append(Rule.Name);
+            Rule.Name = NamespacedName;
+          }
+          if (Rule.Severity ==
+              clang::rulesets::config::ClangRulesSeverity::CRS_NotSet) {
+            Rule.Severity = Ruleset.Severity;
+          }
+        }
+
+        // Namespace all of the ruleset entries.
+        for (auto &NestedRuleset : Ruleset.Rulesets) {
+          if (NestedRuleset.Name.find('/') == std::string::npos) {
+            std::string NamespacedName = Document.Namespace;
+            NamespacedName.append("/");
+            NamespacedName.append(NestedRuleset.Name);
+            NestedRuleset.Name = NamespacedName;
+          }
         }
       }
     }
@@ -371,25 +499,83 @@ public:
       return nullptr;
     }
 
-    // Map all of the namespaced rule names to their locations in memory (as
-    // part of LoadedRules).
-    for (auto &Rule : LoadedRules->Rules) {
-      this->RuleByNamespacedName[Rule.Name] = &Rule;
+    // Map all of the namespaced rule names and ruleset names across all
+    // documents to their locations in memory.
+    for (auto &Document : *LoadedDocuments) {
+      for (auto &Rule : Document.Rules) {
+        this->RuleByNamespacedName[Rule.Name] = &Rule;
+      }
+      for (auto &Ruleset : Document.Rulesets) {
+        this->RulesetByNamespacedName[Ruleset.Name] = &Ruleset;
+      }
     }
 
     // Return the loaded rules.
-    return LoadedRules;
+    return LoadedDocuments;
   }
 
 private:
+  void applyRulesetToEffectiveRules(
+      bool &StillValid, llvm::DenseSet<llvm::StringRef> &VisitedRulesets,
+      const config::ClangRulesRuleset &Ruleset,
+      ClangRulesetsEffectiveConfig *EffectiveConfig, ASTContext &AST) {
+    // Have we already visited this ruleset? This prevents recursion loops.
+    if (VisitedRulesets.contains(Ruleset.Name)) {
+      return;
+    }
+    VisitedRulesets.insert(Ruleset.Name);
+
+    // Apply the entries in 'Rules'.
+    for (const auto &RulesetRule : Ruleset.Rules) {
+      // Lookup the rule by namespaced name. If this doesn't exist, then the
+      // ruleset is referencing a rule that isn't known.
+      auto *Rule = this->RuleByNamespacedName[RulesetRule.Name];
+      if (Rule == nullptr) {
+        AST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
+            << Ruleset.Name << RulesetRule.Name;
+        StillValid = false;
+      } else {
+        EffectiveConfig->EffectiveRules[RulesetRule.Name] =
+            ClangRulesetsEffectiveRule{Rule, RulesetRule.Severity};
+      }
+    }
+
+    // Apply the entries in 'Rulesets'.
+    for (const auto &RulesetRuleset : Ruleset.Rulesets) {
+      // Lookup the ruleset by namespaced name. If this doesn't exist, then the
+      // ruleset is referencing a ruleset that isn't known.
+      auto *NestedRuleset = this->RulesetByNamespacedName[RulesetRuleset.Name];
+      if (NestedRuleset == nullptr) {
+        AST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
+            << Ruleset.Name << RulesetRuleset.Name;
+        StillValid = false;
+      } else {
+        applyRulesetToEffectiveRules(StillValid, VisitedRulesets,
+                                     *NestedRuleset, EffectiveConfig, AST);
+      }
+    }
+  }
+
   void materializeDirectoryState(ClangRulesetsDirectoryState &DirState,
                                  ASTContext &AST) {
     assert(!DirState.Materialized);
 
-    // If we have an actual on-disk configuration, we need to merge that
-    // with our parent.
-    if (DirState.ActualOnDiskConfig &&
-        DirState.ActualOnDiskConfig->Rulesets.size() > 0) {
+    // If we have an actual on-disk configuration with at least one ruleset
+    // defined, we need to merge that with our parent.
+    bool HasConfigsToMerge = DirState.ActualOnDiskConfigs &&
+                             DirState.ActualOnDiskConfigs->size() > 0;
+    if (HasConfigsToMerge) {
+      HasConfigsToMerge = false;
+      for (const auto &Document : *DirState.ActualOnDiskConfigs) {
+        for (const auto &Ruleset : Document.Rulesets) {
+          if (!Ruleset.DefineOnly) {
+            HasConfigsToMerge = true;
+            break;
+          }
+        }
+      }
+    }
+    if (HasConfigsToMerge) {
       // Create our new effective configuration.
       auto *EffectiveConfig = new ClangRulesetsEffectiveConfig();
 
@@ -416,19 +602,16 @@ private:
       // For all of the rulesets in our rules, add them or update their existing
       // severity in the effective rules.
       bool StillValid = true;
-      for (const auto &Ruleset : DirState.ActualOnDiskConfig->Rulesets) {
-        for (const auto &RulesetRule : Ruleset.Rules) {
-          // Lookup the rule by namespaced name. If this doesn't exist, then the
-          // ruleset is referencing a rule that isn't known.
-          auto *Rule = this->RuleByNamespacedName[RulesetRule.Name];
-          if (Rule == nullptr) {
-            AST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
-                << Ruleset.Name << RulesetRule.Name;
-            StillValid = false;
-          } else {
-            EffectiveConfig->EffectiveRules[RulesetRule.Name] =
-                ClangRulesetsEffectiveRule{Rule, RulesetRule.Severity};
+      llvm::DenseSet<llvm::StringRef> VisitedRulesets;
+      for (const auto &Document : *DirState.ActualOnDiskConfigs) {
+        for (const auto &Ruleset : Document.Rulesets) {
+          if (Ruleset.DefineOnly) {
+            // This ruleset is only being defined here; it should not be made
+            // active automatically.
+            continue;
           }
+          this->applyRulesetToEffectiveRules(StillValid, VisitedRulesets,
+                                             Ruleset, EffectiveConfig, AST);
         }
       }
       if (!StillValid) {
@@ -802,7 +985,7 @@ public:
           clang::FileID ClangRulesFileID =
               CI.getSourceManager().getOrCreateFileID(
                   ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
-          State->Dirs[ContainingDirectory].ActualOnDiskConfig =
+          State->Dirs[ContainingDirectory].ActualOnDiskConfigs =
               State->loadClangRulesFromPreprocessor(ClangRulesFileID, SrcMgr);
 
           // Add the .clang-rules to the dependencies so that external tools
@@ -819,7 +1002,7 @@ public:
         } else {
           // We did not get a .clangrules file in this directory; cache that
           // it is empty.
-          State->Dirs[ContainingDirectory].ActualOnDiskConfig = nullptr;
+          State->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
         }
         // Modify CurrentAbsolutePath so that it contains the next parent path
         // to evaluate.
