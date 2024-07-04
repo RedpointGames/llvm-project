@@ -63,6 +63,14 @@ enum ClangRulesSeverity : int8_t {
   CRS_Error,
 };
 
+/// Determines whether the Clang AST matcher operates in "AsIs" or "IgnoreUnlessSpelledInSource" traversal mode.
+enum ClangRulesTraversalMode : int8_t {
+  /// Traverse AST nodes even if they don't exist in source code.
+  CRTM_AsIs,
+  /// Only traverse into AST nodes that are explicitly present in the source code.
+  CRTM_IgnoreUnlessSpelledInSource,
+};
+
 /// Defines a static analysis rule to run during compilation.
 struct ClangRulesRule {
   /// The unique name of the rule sans namespace. You can reference rules in
@@ -72,6 +80,8 @@ struct ClangRulesRule {
   /// The Clang AST matcher to evaluate against top-level declarations in the
   /// AST.
   std::string Matcher;
+  /// Specifies the traversal mode for the AST matcher.
+  ClangRulesTraversalMode TraversalMode;
   /// The compiler diagnostic message to emit at the callsite when this static
   /// analysis rule matches.
   std::string ErrorMessage;
@@ -182,10 +192,23 @@ struct ScalarEnumerationTraits<clang::rulesets::config::ClangRulesSeverity> {
   }
 };
 
+template <>
+struct ScalarEnumerationTraits<
+    clang::rulesets::config::ClangRulesTraversalMode> {
+  static void enumeration(IO &IO, clang::rulesets::config::ClangRulesTraversalMode &Value) {
+    IO.enumCase(Value, "AsIs",
+                clang::rulesets::config::ClangRulesTraversalMode::CRTM_AsIs);
+    IO.enumCase(Value, "IgnoreUnlessSpelledInSource",
+                clang::rulesets::config::ClangRulesTraversalMode::CRTM_IgnoreUnlessSpelledInSource);
+  }
+};
+
 template <> struct MappingTraits<clang::rulesets::config::ClangRulesRule> {
   static void mapping(IO &IO, clang::rulesets::config::ClangRulesRule &Rule) {
     IO.mapRequired("Name", Rule.Name);
     IO.mapRequired("Matcher", Rule.Matcher);
+    IO.mapOptional("TraversalMode", Rule.TraversalMode,
+                   clang::rulesets::config::ClangRulesTraversalMode::CRTM_AsIs);
     IO.mapRequired("ErrorMessage", Rule.ErrorMessage);
     IO.mapRequired("Callsite", Rule.Callsite);
     IO.mapOptional("Hints", Rule.Hints);
@@ -430,6 +453,14 @@ public:
                 << NamespacedName << ParseDiag.toStringFull();
             StillValid = false;
             continue;
+          }
+          if (Rule.TraversalMode == config::ClangRulesTraversalMode::
+                                        CRTM_IgnoreUnlessSpelledInSource) {
+            Rule.MatcherParsed = Rule.MatcherParsed.value().withTraversalKind(
+                clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
+          }
+          else {
+            // @note: We assume that TraversalKind::TK_AsIs will remain the default internally inside Clang and thus we don't need to modify MatcherParsed in this case.
           }
         }
       }
