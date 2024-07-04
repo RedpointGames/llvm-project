@@ -1062,12 +1062,8 @@ const internal::ArgumentAdaptingMatcherFunc<internal::HasDescendantMatcher>
     hasDescendant = {};
 const internal::ArgumentAdaptingMatcherFunc<internal::ForEachMatcher> forEach =
     {};
-const internal::ArgumentAdaptingMatcherFunc<internal::ForNoneMatcher> forNone =
-    {};
 const internal::ArgumentAdaptingMatcherFunc<internal::ForEachDescendantMatcher>
     forEachDescendant = {};
-const internal::ArgumentAdaptingMatcherFunc<internal::ForNoDescendantMatcher>
-    forNoDescendant = {};
 const internal::ArgumentAdaptingMatcherFunc<
     internal::HasParentMatcher,
     internal::TypeList<Decl, NestedNameSpecifierLoc, Stmt, TypeLoc, Attr>,
@@ -1142,6 +1138,8 @@ const internal::VariadicDynCastAllOfMatcher<OMPClause, OMPDefaultClause>
     ompDefaultClause;
 const internal::VariadicDynCastAllOfMatcher<Decl, CXXDeductionGuideDecl>
     cxxDeductionGuideDecl;
+
+#include "ASTMatchersInternal.Unreal.h"
 
 } // end namespace ast_matchers
 } // end namespace clang
