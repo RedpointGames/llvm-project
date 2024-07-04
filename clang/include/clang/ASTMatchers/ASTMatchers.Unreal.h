@@ -468,4 +468,37 @@ AST_MATCHER(ElaboratedTypeLoc, hasRedundantNamespacing) {
   return false;
 }
 
+inline bool classHasTrivialCopyAndDestroy(QualType Type) {
+  auto *Record = Type->getAsCXXRecordDecl();
+  return Record && Record->hasDefinition() &&
+         !Record->hasNonTrivialCopyConstructor() &&
+         !Record->hasNonTrivialDestructor();
+}
+
+inline bool hasDeletedCopyConstructor(QualType Type) {
+  auto *Record = Type->getAsCXXRecordDecl();
+  if (!Record || !Record->hasDefinition())
+    return false;
+  for (const auto *Constructor : Record->ctors()) {
+    if (Constructor->isCopyConstructor() && Constructor->isDeleted())
+      return true;
+  }
+  return false;
+}
+
+inline std::optional<bool> isExpensiveToCopyNode(QualType Type,
+                                      const ASTContext &Context) {
+  if (Type->isDependentType() || Type->isIncompleteType())
+    return std::nullopt;
+  return !Type.isTriviallyCopyableType(Context) &&
+         !classHasTrivialCopyAndDestroy(Type) &&
+         !hasDeletedCopyConstructor(Type) && !Type->isObjCLifetimeType();
+}
+
+AST_MATCHER(QualType, isExpensiveToCopy) {
+  std::optional<bool> IsExpensive =
+      isExpensiveToCopyNode(Node, Finder->getASTContext());
+  return IsExpensive && *IsExpensive;
+}
+
 // @unreal: END
