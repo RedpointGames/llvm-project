@@ -3589,6 +3589,7 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
   case tok::annot_unreal_uproperty:
   case tok::annot_unreal_specifier:
   case tok::annot_unreal_metadata_specifier:
+  case tok::annot_unreal_exported:
     if (Tok.getAnnotationValue() == nullptr) {
       HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
     } else {
