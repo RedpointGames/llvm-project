@@ -995,6 +995,7 @@ PRAGMA_ANNOTATION(unreal_uinterface)
 PRAGMA_ANNOTATION(unreal_ustruct)
 PRAGMA_ANNOTATION(unreal_specifier)
 PRAGMA_ANNOTATION(unreal_metadata_specifier)
+PRAGMA_ANNOTATION(unreal_exported)
 // @unreal: END
 
 #undef PRAGMA_ANNOTATION

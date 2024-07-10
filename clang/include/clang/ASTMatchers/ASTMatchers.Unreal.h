@@ -498,3 +498,14 @@ AST_MATCHER(QualType, isExpensiveToCopy) {
       isExpensiveToCopyNode(Node, Finder->getASTContext());
   return IsExpensive && *IsExpensive;
 }
+/// Matches if a named decl has an ..._API macro applied to it.
+///
+/// Given
+/// \code
+///   class MYMODULE_API FSomeDecl {};
+/// \endcode
+/// \c namedDecl(isUnrealExported())
+///   matches the class.
+AST_MATCHER(NamedDecl, isUnrealExported) {
+  return Node.UnrealExported;
+}

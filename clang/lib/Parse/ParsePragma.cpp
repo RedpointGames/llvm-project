@@ -727,7 +727,8 @@ void Parser::ConsumePragmaUnreal() {
   while (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
                      tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
                      tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
-                     tok::annot_unreal_metadata_specifier)) {
+                     tok::annot_unreal_metadata_specifier,
+                     tok::annot_unreal_exported)) {
     if (Tok.getAnnotationValue() == nullptr) {
       HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
     } else {
@@ -741,14 +742,16 @@ void Parser::CheckNoPragmaUnreal() {
   if (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
                   tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
                   tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
-                  tok::annot_unreal_metadata_specifier)) {
+                  tok::annot_unreal_metadata_specifier,
+                  tok::annot_unreal_exported)) {
     Diag(Tok.getLocation(), diag::err_expected_member_name_or_semi)
         << SourceRange();
     assert(!Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
                         tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
                         tok::annot_unreal_uproperty,
                         tok::annot_unreal_specifier,
-                        tok::annot_unreal_metadata_specifier));
+                        tok::annot_unreal_metadata_specifier,
+                        tok::annot_unreal_exported));
   }
 }
 

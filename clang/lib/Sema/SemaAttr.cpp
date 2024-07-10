@@ -51,42 +51,74 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
 }
 
 // @unreal: BEGIN
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
+#elif defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4062)
+#endif
 void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
-  if (this->UnrealStack.size() > 0) {
-    if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
-      if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
-        if (this->UnrealStack[0].Kind == tok::annot_unreal_uproperty) {
+  if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
+    while (this->UnrealStack.size() > 0) {
+      const auto &Current = this->UnrealStack[0];
+      switch (Current.Kind) {
+      case tok::annot_unreal_exported: {
+        ND->UnrealExported = true;
+        break;
+      }
+      case tok::annot_unreal_uproperty: {
+        if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UProperty;
         }
+        break;
       }
-      if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
-        if (this->UnrealStack[0].Kind == tok::annot_unreal_ufunction) {
+      case tok::annot_unreal_ufunction: {
+        if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UFunction;
         }
+        break;
       }
-      if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
-        if (this->UnrealStack[0].Kind == tok::annot_unreal_uclass) {
+      case tok::annot_unreal_uclass: {
+        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UClass;
-        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_uinterface) {
+        }
+        break;
+      }
+      case tok::annot_unreal_uinterface: {
+        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UInterface;
-        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_ustruct) {
+        }
+        break;
+      }
+      case tok::annot_unreal_ustruct: {
+        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UStruct;
         }
+        break;
       }
-      if (ND->UnrealType != UnrealType::UT_None) {
-        for (int i = 1; i < this->UnrealStack.size(); i++) {
-          const auto &Val = this->UnrealStack[i];
-          if (Val.Kind == tok::annot_unreal_specifier) {
-            ND->UnrealSpecifiers.push_back(Val.SpecData);
-          } else if (Val.Kind == tok::annot_unreal_metadata_specifier) {
-            ND->UnrealMetadata.push_back(Val.SpecData);
-          }
+      case tok::annot_unreal_specifier: {
+        if (ND->UnrealType != UnrealType::UT_None) {
+          ND->UnrealSpecifiers.push_back(Current.SpecData);
         }
+        break;
       }
-      this->UnrealStack.clear();
+      case tok::annot_unreal_metadata_specifier: {
+        if (ND->UnrealType != UnrealType::UT_None) {
+          ND->UnrealMetadata.push_back(Current.SpecData);
+        }
+        break;
+      }
+      }
+      this->UnrealStack.erase(this->UnrealStack.begin());
     }
   }
 }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 // @unreal: END
 
 void Sema::AddAlignmentAttributesForRecord(RecordDecl *RD) {

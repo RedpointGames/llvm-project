@@ -4720,7 +4720,7 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
     // @unreal: BEGIN
     if (Tok.isOneOf(tok::annot_unreal_ufunction, tok::annot_unreal_uproperty,
                     tok::annot_unreal_specifier,
-                    tok::annot_unreal_metadata_specifier)) {
+                    tok::annot_unreal_metadata_specifier, tok::annot_unreal_exported)) {
       if (Tok.getAnnotationValue() == nullptr) {
         HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
       } else {
