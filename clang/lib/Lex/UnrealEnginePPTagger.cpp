@@ -54,30 +54,33 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
                                         const MacroArgs *Args) {
   if (MacroNameTok.isAnyIdentifier()) {
     llvm::StringRef MacroName = MacroNameTok.getIdentifierInfo()->getName();
-    bool IsRecognised = false;
+    bool RequiresParameterHandling = false;
     std::vector<TokenInfo> TokensToPush;
     if (MacroName == "UCLASS") {
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_uclass, nullptr));
-      IsRecognised = true;
+      RequiresParameterHandling = true;
     } else if (MacroName == "USTRUCT") {
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_ustruct, nullptr));
-      IsRecognised = true;
+      RequiresParameterHandling = true;
     } else if (MacroName == "UINTERFACE") {
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_uinterface, nullptr));
-      IsRecognised = true;
+      RequiresParameterHandling = true;
     } else if (MacroName == "UPROPERTY") {
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_uproperty, nullptr));
-      IsRecognised = true;
+      RequiresParameterHandling = true;
     } else if (MacroName == "UFUNCTION") {
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_ufunction, nullptr));
-      IsRecognised = true;
+      RequiresParameterHandling = true;
+    } else if (MacroName.ends_with("_API")) {
+      TokensToPush.push_back(
+          TokenInfo(tok::TokenKind::annot_unreal_exported, nullptr));
     }
-    if (IsRecognised && Args != nullptr) {
+    if (RequiresParameterHandling && Args != nullptr) {
       assert(Args->getNumMacroArguments() == 1 &&
              "Expected U* specifier to only have one (varargs) argument");
       const Token *ArgTokens = Args->getUnexpArgument(0);

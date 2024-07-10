@@ -264,7 +264,7 @@ protected:
   NamedDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName N)
       : Decl(DK, DC, L), Name(N)
       // @unreal: BEGIN
-      , UnrealType(UnrealType::UT_None), UnrealSpecifiers(), UnrealMetadata()
+        , UnrealType(UnrealType::UT_None), UnrealExported(false), UnrealSpecifiers(), UnrealMetadata()
       // @unreal: END
       {}
 
@@ -272,6 +272,12 @@ public:
   // @unreal: BEGIN
   /// The Unreal type flag for this decl.
   unsigned UnrealType;
+
+  /// If true, this type is exported from modules as far as Unreal
+  /// is concerned. This is set when _API is present on the type,
+  /// and can be used to track that _API is present regardless of
+  /// what the macro expands to.
+  bool UnrealExported;
 
   /// The Unreal specifiers that are associated with this decl.
   /// todo: Make this a map for faster lookups.
