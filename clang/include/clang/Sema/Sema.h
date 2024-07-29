@@ -1730,19 +1730,7 @@ public:
   PragmaStack<bool> StrictGuardStackCheckStack;
 
   // @unreal: BEGIN
-  // Unreal stacks.
-  struct UnrealSpecifierSema {
-    tok::TokenKind Kind;
-    clang::UnrealSpecifier SpecData;
-    clang::SourceLocation Loc;
-    UnrealSpecifierSema(tok::TokenKind InKind,
-                        const clang::UnrealSpecifier &InSpecData,
-                        const clang::SourceLocation &InLoc)
-        : Kind(InKind), SpecData(InSpecData), Loc(InLoc){};
-  };
-  std::vector<UnrealSpecifierSema> UnrealStack;
-  std::map<std::string, CXXRecordDecl *>
-      ExpectedIInterfaceToUInterfaceAttachments;
+  #include "Sema.Unreal.h"
   // @unreal: END
 
   // This stack tracks the current state of Sema.CurFPFeatures.
@@ -1870,11 +1858,6 @@ public:
   /// ActOnPragmaOptionsAlign - Called on well formed \#pragma options align.
   void ActOnPragmaOptionsAlign(PragmaOptionsAlignKind Kind,
                                SourceLocation PragmaLoc);
-
-  // @unreal: BEGIN
-  void ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
-                       const UnrealSpecifier &UnrealData);
-  // @unreal: END
 
   /// ActOnPragmaPack - Called on well formed \#pragma pack(...).
   void ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
@@ -2064,11 +2047,6 @@ public:
 
   /// Called to set exception behavior for floating point operations.
   void setExceptionMode(SourceLocation Loc, LangOptions::FPExceptionModeKind);
-
-  // @unreal: BEGIN
-  /// Called to add specifiers from the Unreal stack.
-  void AddUnrealSpecifiersForDecl(Decl *RD);
-  // @unreal: END
 
   /// PushNamespaceVisibilityAttr - Note that we've entered a
   /// namespace with a visibility attribute.
