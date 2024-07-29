@@ -543,6 +543,10 @@ public:
     return ParseTopLevelDecl(Result, IS);
   }
 
+  // @unreal: BEGIN
+  #include "Parser.Unreal.h"
+  // @unreal: END
+
   /// ConsumeToken - Consume the current 'peek token' and lex the next one.
   /// This does not work with special tokens: string literals, code completion,
   /// annotation tokens and balanced tokens must be handled using the specific
@@ -552,7 +556,9 @@ public:
     assert(!isTokenSpecial() &&
            "Should consume special tokens with Consume*Token");
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return PrevTokLocation;
   }
 
@@ -562,7 +568,9 @@ public:
     assert(!isTokenSpecial() &&
            "Should consume special tokens with Consume*Token");
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return true;
   }
 
@@ -640,7 +648,9 @@ private:
   void UnconsumeToken(Token &Consumed) {
       Token Next = Tok;
       PP.EnterToken(Consumed, /*IsReinject*/true);
-      PP.Lex(Tok);
+      // @unreal: BEGIN
+      PPLexWithUnrealAnnotationTokens();
+      // @unreal: END
       PP.EnterToken(Next, /*IsReinject*/true);
   }
 
@@ -648,7 +658,9 @@ private:
     assert(Tok.isAnnotation() && "wrong consume method");
     SourceLocation Loc = Tok.getLocation();
     PrevTokLocation = Tok.getAnnotationEndLoc();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return Loc;
   }
 
@@ -663,7 +675,9 @@ private:
       --ParenCount;       // Don't let unbalanced )'s drive the count negative.
     }
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return PrevTokLocation;
   }
 
@@ -679,7 +693,9 @@ private:
     }
 
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return PrevTokLocation;
   }
 
@@ -695,7 +711,9 @@ private:
     }
 
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return PrevTokLocation;
   }
 
@@ -707,7 +725,9 @@ private:
     assert(isTokenStringLiteral() &&
            "Should only consume string literals with this method");
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return PrevTokLocation;
   }
 
@@ -719,7 +739,9 @@ private:
   SourceLocation ConsumeCodeCompletionToken() {
     assert(Tok.is(tok::code_completion));
     PrevTokLocation = Tok.getLocation();
-    PP.Lex(Tok);
+    // @unreal: BEGIN
+    PPLexWithUnrealAnnotationTokens();
+    // @unreal: END
     return PrevTokLocation;
   }
 
@@ -766,18 +788,6 @@ private:
   /// Handle the annotation token produced for
   /// #pragma GCC visibility...
   void HandlePragmaVisibility();
-
-  // @unreal: BEGIN
-  /// Consume any and all Unreal Engine tokens into the stack.
-  void ConsumePragmaUnreal();
-
-  /// Checks that there aren't any Unreal tokens on the stack.
-  void CheckNoPragmaUnreal();
-
-  /// Handle Unreal Engine semantics.
-  void HandlePragmaUnreal(tok::TokenKind Kind,
-                          const UnrealSpecifier &UnrealData);
-  // @unreal: END
 
   /// Handle the annotation token produced for
   /// #pragma pack...

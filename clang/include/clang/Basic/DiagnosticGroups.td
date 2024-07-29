@@ -1556,6 +1556,7 @@ def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInCon
 
 // @unreal: BEGIN
 def UnrealEngine : DiagGroup<"unreal-engine">;
+def IncludeWhatYouUse : DiagGroup<"include-what-you-use">;
 // @unreal: END
 
 // Warnings and notes related to the function effects system underlying

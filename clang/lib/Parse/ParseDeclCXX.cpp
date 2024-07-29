@@ -2864,10 +2864,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
     return nullptr;
   }
   
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
-
   // Turn on colon protection early, while parsing declspec, although there is
   // nothing to protect there. It prevents from false errors if error recovery
   // incorrectly determines where the declspec ends, as in the example:
@@ -2929,10 +2925,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
     }
   }
 
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
-
   // static_assert-declaration. A templated static_assert declaration is
   // diagnosed in Parser::ParseDeclarationAfterTemplate.
   if (!TemplateInfo.Kind &&
@@ -2941,10 +2933,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
     return DeclGroupPtrTy::make(
         DeclGroupRef(ParseStaticAssertDeclaration(DeclEnd)));
   }
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   if (Tok.is(tok::kw_template)) {
     assert(!TemplateInfo.TemplateParams &&
@@ -2955,10 +2943,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
                                                     DeclEnd, AccessAttrs, AS);
   }
 
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
-
   // Handle:  member-declaration ::= '__extension__' member-declaration
   if (Tok.is(tok::kw___extension__)) {
     // __extension__ silences extension warnings in the subexpression.
@@ -2968,34 +2952,15 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
                                           TemplateDiags);
   }
 
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
-
   ParsedAttributes DeclAttrs(AttrFactory);
   // Optional C++11 attribute-specifier
   MaybeParseCXX11Attributes(DeclAttrs);
-
-  // @unreal: BEGIN
-  // We can get UFUNCTION specifiers after a UE_DEPRECATED, which means the
-  // tokens occur here instead. Consume all Unreal tokens and push them onto
-  // the stack.
-  ConsumePragmaUnreal();
-  // @unreal: END
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   // The next token may be an OpenMP pragma annotation token. That would
   // normally be handled from ParseCXXClassMemberDeclarationWithPragmas, but in
   // this case, it came from an *attribute* rather than a pragma. Handle it now.
   if (Tok.is(tok::annot_attr_openmp))
     return ParseOpenMPDeclarativeDirectiveWithExtDecl(AS, DeclAttrs);
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   if (Tok.is(tok::kw_using)) {
     // Eat 'using'.
@@ -3024,10 +2989,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
 
   // Hold late-parsed attributes so we can attach a Decl to them later.
   LateParsedAttrList CommonLateParsedAttrs;
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   // decl-specifier-seq:
   // Parse the common declaration-specifiers piece.
@@ -3068,10 +3029,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
       TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->data()
                                   : nullptr,
       TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->size() : 0);
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   if (TryConsumeToken(tok::semi)) {
     if (DS.isFriendSpecified())
@@ -3129,10 +3086,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
   ExprResult BitfieldSize;
   ExprResult TrailingRequiresClause;
   bool ExpectSemi = true;
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   // C++20 [temp.spec] 13.9/6.
   // This disables the access checking rules for member function template
@@ -3585,18 +3538,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
     ConsumeExtraSemi(InsideStruct, TagType);
     return nullptr;
 
-  case tok::annot_unreal_ufunction:
-  case tok::annot_unreal_uproperty:
-  case tok::annot_unreal_specifier:
-  case tok::annot_unreal_metadata_specifier:
-  case tok::annot_unreal_exported:
-    if (Tok.getAnnotationValue() == nullptr) {
-      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
-    } else {
-      HandlePragmaUnreal(Tok.getKind(),
-                         *(UnrealSpecifier *)Tok.getAnnotationValue());
-    }
-    return nullptr;
   case tok::annot_pragma_vis:
     HandlePragmaVisibility();
     return nullptr;
