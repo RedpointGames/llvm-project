@@ -25,6 +25,7 @@ add_clang_library(clangParse
   ParseTemplate.cpp
   ParseTentative.cpp
   Parser.cpp
+  Parser.Unreal.cpp
   ParseOpenACC.cpp
 
   LINK_LIBS

@@ -1747,6 +1747,7 @@ def InstallAPIViolation : DiagGroup<"installapi-violation">;
 
 // @unreal: BEGIN
 def UnrealEngine : DiagGroup<"unreal-engine">;
+def IncludeWhatYouUse : DiagGroup<"include-what-you-use">;
 // @unreal: END
 
 // Warnings related to _BitInt extension

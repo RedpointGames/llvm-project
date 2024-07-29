@@ -3,6 +3,7 @@
 #include "clang/AST/ASTConsumer.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/Dynamic/Parser.h"
+#include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceMgrAdapter.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
@@ -19,11 +20,18 @@ using namespace clang;
 #define RULESET_ENABLE_TIMING 0
 #define RULESET_ENABLE_TIMING_ALWAYS 0
 #define RULESET_ENABLE_TRACING 0
+#define RULESET_ENABLE_IWYU_TRACING 0
 
 #if RULESET_ENABLE_TRACING
 #define RULESET_TRACE(x) llvm::errs() << x;
 #else
 #define RULESET_TRACE(x)
+#endif
+
+#if RULESET_ENABLE_IWYU_TRACING
+#define RULESET_IWYU_TRACE(x) llvm::errs() << x;
+#else
+#define RULESET_IWYU_TRACE(x)
 #endif
 
 #if RULESET_ENABLE_TIMING
@@ -63,11 +71,24 @@ enum ClangRulesSeverity : int8_t {
   CRS_Error,
 };
 
-/// Determines whether the Clang AST matcher operates in "AsIs" or "IgnoreUnlessSpelledInSource" traversal mode.
+/// Determines whether IWYU analysis should be enabled for files in this folder.
+enum ClangRulesIWYUAnalysis : int8_t {
+  /// IWYU analysis is not turned on or off, and the setting will be inherited
+  /// from the parent folder.
+  CRIA_NotSet,
+  /// IWYU analysis is turned off.
+  CRIA_Off,
+  /// IWYU analysis is turned on.
+  CRIA_On,
+};
+
+/// Determines whether the Clang AST matcher operates in "AsIs" or
+/// "IgnoreUnlessSpelledInSource" traversal mode.
 enum ClangRulesTraversalMode : int8_t {
   /// Traverse AST nodes even if they don't exist in source code.
   CRTM_AsIs,
-  /// Only traverse into AST nodes that are explicitly present in the source code.
+  /// Only traverse into AST nodes that are explicitly present in the source
+  /// code.
   CRTM_IgnoreUnlessSpelledInSource,
 };
 
@@ -162,6 +183,8 @@ struct ClangRules {
   std::vector<ClangRulesRule> Rules;
   /// The list of rulesets that are defined in this document.
   std::vector<ClangRulesRuleset> Rulesets;
+  /// Whether or not IWYU analysis should run and diagnostics emitted.
+  ClangRulesIWYUAnalysis IWYUAnalysis;
 };
 
 } // namespace clang::rulesets::config
@@ -193,13 +216,47 @@ struct ScalarEnumerationTraits<clang::rulesets::config::ClangRulesSeverity> {
 };
 
 template <>
+struct ScalarTraits<clang::rulesets::config::ClangRulesIWYUAnalysis> {
+  static void output(const clang::rulesets::config::ClangRulesIWYUAnalysis &Val,
+                     void *, raw_ostream &Out) {
+    switch (Val) {
+    case clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_On:
+      Out << "On";
+      break;
+    case clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_Off:
+      Out << "Off";
+      break;
+    default:
+      Out << "NotSet";
+      break;
+    }
+  }
+  static StringRef input(StringRef Scalar, void *,
+                         clang::rulesets::config::ClangRulesIWYUAnalysis &Val) {
+    if (Scalar == "NotSet") {
+      Val = clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet;
+    } else if (std::optional<bool> Parsed = parseBool(Scalar)) {
+      Val = (*Parsed)
+                ? clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_On
+                : clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_Off;
+    } else {
+      Val = clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet;
+    }
+    return StringRef();
+  }
+  static QuotingType mustQuote(StringRef) { return QuotingType::None; }
+};
+
+template <>
 struct ScalarEnumerationTraits<
     clang::rulesets::config::ClangRulesTraversalMode> {
-  static void enumeration(IO &IO, clang::rulesets::config::ClangRulesTraversalMode &Value) {
+  static void
+  enumeration(IO &IO, clang::rulesets::config::ClangRulesTraversalMode &Value) {
     IO.enumCase(Value, "AsIs",
                 clang::rulesets::config::ClangRulesTraversalMode::CRTM_AsIs);
     IO.enumCase(Value, "IgnoreUnlessSpelledInSource",
-                clang::rulesets::config::ClangRulesTraversalMode::CRTM_IgnoreUnlessSpelledInSource);
+                clang::rulesets::config::ClangRulesTraversalMode::
+                    CRTM_IgnoreUnlessSpelledInSource);
   }
 };
 
@@ -269,6 +326,13 @@ template <> struct MappingTraits<clang::rulesets::config::ClangRules> {
     IO.mapRequired("Namespace", Rules.Namespace);
     IO.mapOptional("Rulesets", Rules.Rulesets);
     IO.mapOptional("Rules", Rules.Rules);
+    if (!IO.outputting() ||
+        Rules.IWYUAnalysis !=
+            clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
+      IO.mapOptional(
+          "IWYUAnalysis", Rules.IWYUAnalysis,
+          clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet);
+    }
   }
 };
 
@@ -284,6 +348,7 @@ struct ClangRulesetsEffectiveRule {
 
 struct ClangRulesetsEffectiveConfig {
   std::map<std::string, ClangRulesetsEffectiveRule> EffectiveRules;
+  config::ClangRulesIWYUAnalysis EffectiveIWYUAnalysis; // @note: NotSet is 0.
 };
 
 struct ClangRulesetsDirectoryState {
@@ -355,10 +420,31 @@ public:
 #endif
 };
 
+clang::DiagnosticIDs::Level
+convertDiagnosticLevel(config::ClangRulesSeverity Severity) {
+  clang::DiagnosticIDs::Level DiagnosticLevel =
+      clang::DiagnosticIDs::Level::Remark;
+  switch (Severity) {
+  case config::ClangRulesSeverity::CRS_Silence:
+  case config::ClangRulesSeverity::CRS_Info:
+    DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
+    break;
+  case config::ClangRulesSeverity::CRS_Warning:
+  case config::ClangRulesSeverity::CRS_NotSet:
+    DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
+    break;
+  case config::ClangRulesSeverity::CRS_Error:
+    DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
+    break;
+  }
+  return DiagnosticLevel;
+}
+
 class ClangRulesetsState {
 private:
   bool ThreadingEnabled;
   clang::CompilerInstance &CI;
+  clang::SourceManager &SrcMgr;
 
 public:
   llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState> Dirs;
@@ -368,13 +454,21 @@ private:
   std::vector<ClangRulesetsEffectiveConfig *> CreatedEffectiveConfigs;
   llvm::StringMap<config::ClangRulesRule *> RuleByNamespacedName;
   llvm::StringMap<config::ClangRulesRuleset *> RulesetByNamespacedName;
+  llvm::DenseMap<FileEntryRef, llvm::DenseSet<FileEntryRef>> IWYUDependencyTree;
+  llvm::DenseMap<FileEntryRef, llvm::DenseMap<FileEntryRef, SourceLocation>>
+      IWYUIncludeTree;
+  llvm::DenseMap<FileEntryRef, bool> IWYUIncludeIsCpp;
+  llvm::DenseSet<FileEntryRef> IWYURoots;
+  llvm::DenseSet<FileEntryRef> IWYUNonRoots;
 
 public:
   ClangRulesetsState(bool InThreadingEnabled, clang::CompilerInstance &InCI)
-      : ThreadingEnabled(InThreadingEnabled), CI(InCI), Dirs(),
+      : ThreadingEnabled(InThreadingEnabled), CI(InCI),
+        SrcMgr(InCI.getSourceManager()), Dirs(),
         Timing(std::make_unique<ClangRulesetsTiming>()),
         CreatedEffectiveConfigs(), RuleByNamespacedName(),
-        RulesetByNamespacedName(){};
+        RulesetByNamespacedName(), IWYUDependencyTree(), IWYUIncludeTree(),
+        IWYUIncludeIsCpp(), IWYURoots(), IWYUNonRoots(){};
   ClangRulesetsState(const ClangRulesetsState &) = delete;
   ClangRulesetsState(ClangRulesetsState &&) = delete;
   ~ClangRulesetsState() {
@@ -385,9 +479,404 @@ public:
 
   ClangRulesetsTiming *getTiming() { return this->Timing.get(); }
 
+public:
+  void iwyuTrackEnterFile(FileID FID) {
+    if (FID.isInvalid()) {
+      return;
+    }
+
+    auto OptionalFileEntry = SrcMgr.getFileEntryRefForID(FID);
+    if (!OptionalFileEntry.has_value()) {
+      return;
+    }
+    auto &FileEntry = *OptionalFileEntry;
+    if (IWYURoots.contains(FileEntry) || IWYUNonRoots.contains(FileEntry)) {
+      return;
+    }
+
+    if (FileEntry.getName().ends_with_insensitive(".cpp")) {
+      RULESET_IWYU_TRACE("adding iwyu root: " << FileEntry.getName() << "\n")
+      IWYURoots.insert(FileEntry);
+    } else {
+      RULESET_IWYU_TRACE("adding iwyu non-root: " << FileEntry.getName()
+                                                  << "\n")
+      IWYUNonRoots.insert(FileEntry);
+    }
+  }
+
+  void iwyuTrackInclusionDirective(SourceLocation IncludingHashLoc,
+                                   OptionalFileEntryRef IncludedFile) {
+    if (!IncludedFile.has_value() || !IncludingHashLoc.isFileID()) {
+      return;
+    }
+
+    auto IncludingFile =
+        SrcMgr.getFileEntryRefForID(SrcMgr.getFileID(IncludingHashLoc));
+    if (!IncludingFile.has_value() || !IncludedFile.has_value()) {
+      return;
+    }
+
+    if (!IWYUIncludeIsCpp.contains(*IncludedFile)) {
+      IWYUIncludeIsCpp.try_emplace(
+          *IncludedFile, IncludedFile->getName().ends_with_insensitive(".cpp"));
+      RULESET_IWYU_TRACE(
+          "evaluated iwyu 'is cpp' for: " << IncludedFile->getName() << "\n")
+    }
+
+    auto &List = IWYUIncludeTree.getOrInsertDefault(*IncludingFile);
+    List.try_emplace(*IncludedFile, IncludingHashLoc);
+    RULESET_IWYU_TRACE("file '" << IncludingFile->getName()
+                                << "' includes file '"
+                                << IncludedFile->getName() << "'\n")
+  }
+
+  void iwyuTrackMacroUsage(const MacroDefinition &MD, SourceRange SourceRange) {
+    const auto &MI = MD.getMacroInfo();
+    if (MI == nullptr) {
+      return;
+    }
+
+    auto DefinitionFile =
+        SrcMgr.getFileEntryRefForID(SrcMgr.getFileID(MI->getDefinitionLoc()));
+    auto UsageFile =
+        SrcMgr.getFileEntryRefForID(SrcMgr.getFileID(SourceRange.getBegin()));
+    if (!DefinitionFile.has_value() || !UsageFile.has_value()) {
+      return;
+    }
+
+    auto &List = IWYUDependencyTree.getOrInsertDefault(*UsageFile);
+    List.insert(*DefinitionFile);
+    RULESET_IWYU_TRACE("file '" << UsageFile->getName()
+                                << "' uses macro from file '"
+                                << DefinitionFile->getName() << "'\n")
+  }
+
+private:
+  void collectIWYUDependents(FileEntryRef CurrentFile,
+                             llvm::DenseSet<FileEntryRef> &Dependents,
+                             llvm::sys::SmartMutex<true> &Mutex) {
+    Dependents.insert(CurrentFile);
+    auto ImmediateDependents = IWYUDependencyTree.find(CurrentFile);
+    if (ImmediateDependents != IWYUDependencyTree.end()) {
+      for (const auto &Dependent : ImmediateDependents->getSecond()) {
+        if (!Dependents.contains(Dependent)) {
+          collectIWYUDependents(Dependent, Dependents, Mutex);
+        }
+      }
+    }
+  }
+
+  config::ClangRulesIWYUAnalysis
+  evaluateIWYUAnalysis(FileEntryRef CurrentFile) {
+    auto DirState = Dirs.find(CurrentFile.getDir());
+    if (DirState != Dirs.end()) {
+      if (!DirState->second.Materialized) {
+        // @note: Any file that does not have a materialized state at this point
+        // has no .clang-rules file anywhere in it's hierarchy (because
+        // otherwise the top-level decl iteration would have found it), and
+        // therefore we don't need to run IWYU analysis on that file.
+        return config::ClangRulesIWYUAnalysis::CRIA_Off;
+      }
+      if (DirState->second.EffectiveConfig != nullptr) {
+        auto &IWYUAnalysis =
+            DirState->second.EffectiveConfig->EffectiveIWYUAnalysis;
+        if (IWYUAnalysis != config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
+          return IWYUAnalysis;
+        }
+      }
+    }
+    return config::ClangRulesIWYUAnalysis::CRIA_Off;
+  }
+
+  void emitUnusedInclude(FileEntryRef CurrentFile, SourceLocation SourceLoc,
+                         llvm::sys::SmartMutex<true> &Mutex, ASTContext &AST) {
+    Mutex.lock();
+    AST.getDiagnostics().Report(SourceLoc,
+                                diag::warn_iwyu_remove_unused_header);
+    Mutex.unlock();
+  }
+
+  void emitIndirectDependencyRecommendation(FileEntryRef CurrentFile,
+                                            FileEntryRef TargetFile,
+                                            SourceLocation SourceLoc,
+                                            llvm::sys::SmartMutex<true> &Mutex,
+                                            ASTContext &AST) {
+    Mutex.lock();
+    llvm::SmallString<256> TargetRelativePath(TargetFile.getName());
+    llvm::sys::path::remove_dots(TargetRelativePath, true);
+    AST.getDiagnostics().Report(SourceLoc,
+                                diag::warn_iwyu_replace_unused_header)
+        << TargetRelativePath;
+    Mutex.unlock();
+  }
+
+  bool isDependencyReachedThroughFile(FileEntryRef CurrentFile,
+                                      FileEntryRef Dependency) {
+    if (CurrentFile == Dependency) {
+      return true;
+    }
+    auto ImmediateIncludes = IWYUIncludeTree.find(CurrentFile);
+    if (ImmediateIncludes != IWYUIncludeTree.end()) {
+      for (const auto &Include : ImmediateIncludes->second) {
+        if (isDependencyReachedThroughFile(Include.first, Dependency)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void analyseFileForIWYU(FileEntryRef CurrentFile,
+                          llvm::sys::SmartMutex<true> &Mutex, ASTContext &AST) {
+    RULESET_IWYU_TRACE("analysing file '" << CurrentFile.getName()
+                                          << "' for IWYU diagnostics\n")
+    // Figure out whether we should perform IWYU analysis for the current file,
+    // and skip it if we shouldn't.
+    config::ClangRulesIWYUAnalysis EvaluatedIWYUAnalysis =
+        evaluateIWYUAnalysis(CurrentFile);
+    if (EvaluatedIWYUAnalysis == config::ClangRulesIWYUAnalysis::CRIA_Off) {
+      RULESET_IWYU_TRACE("skipping file '"
+                         << CurrentFile.getName()
+                         << "' because IWYU analysis is turned off\n")
+      return;
+    }
+
+    // Get our immediate includes and dependencies.
+    auto ImmediateIncludes = IWYUIncludeTree.find(CurrentFile);
+    auto Dependencies = IWYUDependencyTree.find(CurrentFile);
+    if (ImmediateIncludes == IWYUIncludeTree.end()) {
+      // We don't include anything, so no analysis needs to be performed.
+      return;
+    }
+    bool HasAnyDependencies = Dependencies != IWYUDependencyTree.end();
+
+    // Track files that we depend on that are immediately included.
+    llvm::DenseSet<FileEntryRef> ImmediatelyUsedDependents;
+
+    // Track files that we include but don't have an immediate dependency on.
+    llvm::DenseMap<FileEntryRef, SourceLocation>
+        IncludesNotImmediatelyDependedOn;
+
+    // For each include, see what isn't in the immediate dependency list.
+    RULESET_IWYU_TRACE("IWYU analysis of '"
+                       << CurrentFile.getName()
+                       << "': checking what includes aren't in the immediate "
+                          "dependency list\n")
+    if (ImmediateIncludes != IWYUIncludeTree.end()) {
+      for (const auto &Include : ImmediateIncludes->second) {
+        if (!HasAnyDependencies ||
+            !Dependencies->second.contains(Include.first)) {
+          IncludesNotImmediatelyDependedOn.try_emplace(Include.first,
+                                                       Include.second);
+        } else {
+          ImmediatelyUsedDependents.insert(Include.first);
+        }
+      }
+    }
+
+    // If we don't have any #includes that aren't immediately depended on,
+    // analysis is finished.
+    if (IncludesNotImmediatelyDependedOn.size() == 0) {
+      RULESET_IWYU_TRACE("analysis of file '"
+                         << CurrentFile.getName()
+                         << "' for IWYU diagnostics complete (fast)\n")
+      return;
+    }
+
+    // If we have any files that we don't immediately depend on, search our
+    // dependencies to find out which ones aren't directly included and emit
+    // diagnostics recommending a change of #include directives.
+    llvm::DenseSet<FileEntryRef> IncludesWithRecommendedReplacements;
+    if (HasAnyDependencies) {
+      RULESET_IWYU_TRACE("IWYU analysis of '"
+                         << CurrentFile.getName()
+                         << "': checking what dependencies are transitively "
+                            "pulled in by undesired includes\n")
+      for (const auto &Dependency : Dependencies->second) {
+        if (!ImmediatelyUsedDependents.contains(Dependency)) {
+          for (const auto &Include : IncludesNotImmediatelyDependedOn) {
+            if (isDependencyReachedThroughFile(Include.first, Dependency)) {
+              emitIndirectDependencyRecommendation(CurrentFile, Dependency,
+                                                   Include.second, Mutex, AST);
+              IncludesWithRecommendedReplacements.insert(Include.first);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // For any includes that are completely unused, emit diagnostics for them
+    // now.
+    RULESET_IWYU_TRACE("IWYU analysis of '"
+                       << CurrentFile.getName()
+                       << "': checking what includes are completely unused\n")
+    for (const auto &Include : IncludesNotImmediatelyDependedOn) {
+      if (!IncludesWithRecommendedReplacements.contains(Include.first)) {
+        RULESET_IWYU_TRACE("emitting IWYU diagnostics\n")
+        emitUnusedInclude(CurrentFile, Include.second, Mutex, AST);
+        RULESET_IWYU_TRACE("emitted IWYU diagnostic\n")
+      }
+    }
+
+    RULESET_IWYU_TRACE("analysis of file '"
+                       << CurrentFile.getName()
+                       << "' for IWYU diagnostics complete\n")
+  }
+
+  void analyseFileForIWYURecursive(FileEntryRef CurrentFile,
+                                   llvm::DenseSet<FileEntryRef> &ExaminedFiles,
+                                   llvm::sys::SmartMutex<true> &Mutex,
+                                   ASTContext &AST) {
+    RULESET_IWYU_TRACE("enter file '" << CurrentFile.getName()
+                                      << "' for IWYU recursive analysis\n")
+    ExaminedFiles.insert(CurrentFile);
+    analyseFileForIWYU(CurrentFile, Mutex, AST);
+    auto ImmediateIncludes = IWYUIncludeTree.find(CurrentFile);
+    if (ImmediateIncludes != IWYUIncludeTree.end()) {
+      for (const auto &Include : ImmediateIncludes->second) {
+        if (!ExaminedFiles.contains(Include.first)) {
+          analyseFileForIWYURecursive(Include.first, ExaminedFiles, Mutex, AST);
+        }
+      }
+    }
+    RULESET_IWYU_TRACE("exit file '" << CurrentFile.getName()
+                                     << "' for IWYU recursive analysis\n")
+  }
+
+  void runIWYUAnalysisOnRoot(FileEntryRef RootFile,
+                             llvm::sys::SmartMutex<true> &Mutex,
+                             ASTContext &AST) {
+    RULESET_IWYU_TRACE("start root IWYU analysis of file '"
+                       << RootFile.getName() << "'\n")
+    llvm::DenseSet<FileEntryRef> ExaminedIncludes;
+    analyseFileForIWYURecursive(RootFile, ExaminedIncludes, Mutex, AST);
+    RULESET_IWYU_TRACE("finished root IWYU analysis of file '"
+                       << RootFile.getName() << "'\n")
+  }
+
+  void runIWYUAnalysisOnAllRoots(llvm::ThreadPool &ThreadPool,
+                                 llvm::sys::SmartMutex<true> &ThreadMutex,
+                                 ASTContext &AST) {
+    for (const auto &RootFile : IWYURoots) {
+      if (this->ThreadingEnabled) {
+        ThreadPool.async(
+            [this](FileEntryRef RootFile,
+                   llvm::sys::SmartMutex<true> *ThreadMutex, ASTContext *AST) {
+              this->runIWYUAnalysisOnRoot(RootFile, *ThreadMutex, *AST);
+            },
+            RootFile, &ThreadMutex, &AST);
+      } else {
+        runIWYUAnalysisOnRoot(RootFile, ThreadMutex, AST);
+      }
+    }
+  }
+
+  class IWYUMatchFinder : public ast_matchers::MatchFinder::MatchCallback {
+  private:
+    ClangRulesetsState &State;
+    FileEntryRef &SourceRef;
+    llvm::DenseSet<FileID> &FileIDsAlreadyAdded;
+    llvm::sys::SmartMutex<true> &Mutex;
+    ASTContext &AST;
+
+    void addSourceLocationDependency(const SourceLocation &Loc) {
+      auto FID = AST.getSourceManager().getFileID(Loc);
+      if (FID.isInvalid()) {
+        return;
+      }
+      if (FileIDsAlreadyAdded.contains(FID)) {
+        return;
+      }
+      Mutex.lock();
+      if (FileIDsAlreadyAdded.contains(FID)) {
+        return;
+      }
+      FileIDsAlreadyAdded.insert(FID);
+      auto TargetFile = AST.getSourceManager().getFileEntryRefForID(FID);
+      if (TargetFile.has_value()) {
+        auto &List = State.IWYUDependencyTree.getOrInsertDefault(SourceRef);
+        List.insert(*TargetFile);
+        RULESET_IWYU_TRACE("IWYU C++ dependency adding '"
+                           << SourceRef.getName() << "' dependent on '"
+                           << TargetFile->getName() << "'\n")
+      }
+      Mutex.unlock();
+    }
+
+  public:
+    IWYUMatchFinder(ClangRulesetsState &InState, FileEntryRef &InSourceRef,
+                    llvm::DenseSet<FileID> &InFileIDsAlreadyAdded,
+                    llvm::sys::SmartMutex<true> &InMutex, ASTContext &InAST)
+        : State(InState), SourceRef(InSourceRef),
+          FileIDsAlreadyAdded(InFileIDsAlreadyAdded), Mutex(InMutex),
+          AST(InAST) {}
+
+    virtual void
+    run(const ast_matchers::MatchFinder::MatchResult &Result) override {
+      if (auto *T = Result.Nodes.getNodeAs<Type>("type")) {
+        if (auto *TD = T->getAsTagDecl()) {
+          addSourceLocationDependency(TD->getSourceRange().getBegin());
+          addSourceLocationDependency(TD->getSourceRange().getEnd());
+        }
+      } else if (auto *D = Result.Nodes.getNodeAs<Decl>("decl")) {
+        addSourceLocationDependency(D->getSourceRange().getBegin());
+        addSourceLocationDependency(D->getSourceRange().getEnd());
+      } else if (auto *UD = Result.Nodes.getNodeAs<UsingDirectiveDecl>(
+                     "usingDirective")) {
+        auto *ND = UD->getNominatedNamespace();
+        if (ND != nullptr) {
+          for (const auto &RD : ND->redecls()) {
+            addSourceLocationDependency(RD->getLocation());
+          }
+        }
+      } else if (auto *UD = Result.Nodes.getNodeAs<UsingDecl>("using")) {
+        addSourceLocationDependency(UD->getNameInfo().getLoc());
+      }
+    }
+  };
+
+  void collectIWYUDependenciesForDecl(FileEntryRef FileWithDecl, Decl *Decl,
+                                      llvm::sys::SmartMutex<true> &Mutex,
+                                      ASTContext &AST) {
+    using namespace ast_matchers;
+    llvm::DenseSet<FileID> FileIDsAlreadyAdded;
+    ast_matchers::MatchFinder Finder;
+    IWYUMatchFinder MatchFinder(*this, FileWithDecl, FileIDsAlreadyAdded, Mutex,
+                                AST);
+    Finder.addMatcher(type().bind("type"), &MatchFinder);
+    Finder.addMatcher(callExpr(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(memberExpr(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(cxxOperatorCallExpr(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(cxxConstructExpr(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(cxxNewExpr(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(declRefExpr(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(typedefType(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(
+        templateSpecializationType(hasDeclaration(decl().bind("decl"))),
+        &MatchFinder);
+    Finder.addMatcher(templateTypeParmType(hasDeclaration(decl().bind("decl"))),
+                      &MatchFinder);
+    Finder.addMatcher(
+        templateSpecializationType(forEachTemplateArgument(
+            templateArgument(refersToDeclaration(decl().bind("decl"))))),
+        &MatchFinder);
+    Finder.addMatcher(usingDirectiveDecl().bind("usingDirective"),
+                      &MatchFinder);
+    Finder.addMatcher(usingDecl().bind("using"), &MatchFinder);
+    Finder.matchDecl(Decl, AST);
+  }
+
+public:
   std::unique_ptr<std::vector<config::ClangRules>>
-  loadClangRulesFromPreprocessor(clang::FileID &FileID,
-                                 clang::SourceManager &SrcMgr) {
+  loadClangRulesFromPreprocessor(clang::FileID &FileID) {
     // Set up our YAML parser.
     SourceMgrAdapter SMAdapter(
         SrcMgr, SrcMgr.getDiagnostics(), diag::err_clangrules_message,
@@ -458,9 +947,10 @@ public:
                                         CRTM_IgnoreUnlessSpelledInSource) {
             Rule.MatcherParsed = Rule.MatcherParsed.value().withTraversalKind(
                 clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
-          }
-          else {
-            // @note: We assume that TraversalKind::TK_AsIs will remain the default internally inside Clang and thus we don't need to modify MatcherParsed in this case.
+          } else {
+            // @note: We assume that TraversalKind::TK_AsIs will remain the
+            // default internally inside Clang and thus we don't need to modify
+            // MatcherParsed in this case.
           }
         }
       }
@@ -603,10 +1093,16 @@ private:
     if (HasConfigsToMerge) {
       HasConfigsToMerge = false;
       for (const auto &Document : *DirState.ActualOnDiskConfigs) {
-        for (const auto &Ruleset : Document.Rulesets) {
-          if (!Ruleset.DefineOnly) {
-            HasConfigsToMerge = true;
-            break;
+        if (Document.IWYUAnalysis !=
+            config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
+          HasConfigsToMerge = true;
+        }
+        if (!HasConfigsToMerge) {
+          for (const auto &Ruleset : Document.Rulesets) {
+            if (!Ruleset.DefineOnly) {
+              HasConfigsToMerge = true;
+              break;
+            }
           }
         }
       }
@@ -632,6 +1128,8 @@ private:
           // effective severity).
           EffectiveConfig->EffectiveRules =
               ParentState.EffectiveConfig->EffectiveRules;
+          EffectiveConfig->EffectiveIWYUAnalysis =
+              ParentState.EffectiveConfig->EffectiveIWYUAnalysis;
         }
       }
 
@@ -648,6 +1146,10 @@ private:
           }
           this->applyRulesetToEffectiveRules(StillValid, VisitedRulesets,
                                              Ruleset, EffectiveConfig, AST);
+        }
+        if (Document.IWYUAnalysis !=
+            config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
+          EffectiveConfig->EffectiveIWYUAnalysis = Document.IWYUAnalysis;
         }
       }
       if (!StillValid) {
@@ -686,7 +1188,9 @@ private:
 
       // If there are no effective rules remaining, materialize this directory
       // as if there was no .clang-rules anywhere in the hierarchy.
-      if (EffectiveConfig->EffectiveRules.size() == 0) {
+      if (EffectiveConfig->EffectiveRules.size() == 0 &&
+          EffectiveConfig->EffectiveIWYUAnalysis ==
+              config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
         delete EffectiveConfig;
         DirState.Materialized = true;
         DirState.EffectiveConfig = nullptr;
@@ -785,20 +1289,7 @@ private:
           }
 
           clang::DiagnosticIDs::Level DiagnosticLevel =
-              clang::DiagnosticIDs::Level::Remark;
-          switch (this->EffectiveRule.Severity) {
-          case config::ClangRulesSeverity::CRS_Silence:
-          case config::ClangRulesSeverity::CRS_Info:
-            DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
-            break;
-          case config::ClangRulesSeverity::CRS_Warning:
-          case config::ClangRulesSeverity::CRS_NotSet:
-            DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
-            break;
-          case config::ClangRulesSeverity::CRS_Error:
-            DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
-            break;
-          }
+              convertDiagnosticLevel(this->EffectiveRule.Severity);
           auto CallsiteDiagID =
               this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
                   DiagnosticLevel, this->EffectiveRule.Rule->ErrorMessage);
@@ -890,6 +1381,9 @@ public:
     llvm::sys::SmartMutex<true> ThreadMutex;
     llvm::ThreadPool ThreadPool;
 
+    // Track whether we ever included any file that would turn on IWYU analysis.
+    bool ShouldRunIWYUAnalysis = false;
+
     // Iterate through all of the decls in the translation unit.
     for (const auto &DeclEntry : UnitDeclEntry->decls()) {
       bool FileChanged = false;
@@ -979,6 +1473,18 @@ public:
           Matcher->match(DeclEntry);
         }
       }
+
+      // If there is a current effective config, and we have IWYU analysis
+      // enabled, use matchers on this decl to collect references as
+      // dependencies.
+      if (CurrentEffectiveConfig != nullptr &&
+          CurrentEffectiveConfig->EffectiveIWYUAnalysis ==
+              config::ClangRulesIWYUAnalysis::CRIA_On) {
+        ShouldRunIWYUAnalysis = true;
+        collectIWYUDependenciesForDecl(
+            *SrcMgr.getFileEntryRefForID(CurrentFileID), DeclEntry, ThreadMutex,
+            AST);
+      }
     }
 
     // Wait for matchers to run in threads.
@@ -986,6 +1492,20 @@ public:
       RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
                           RulesetAnalysisWaitTimer);
       ThreadPool.wait();
+    }
+
+    // After all matchers have run (and we've potentially collected IWYU
+    // dependency data from the AST), run IWYU analysis in parallel across the
+    // files that have IWYU analysis enabled.
+    if (ShouldRunIWYUAnalysis) {
+      runIWYUAnalysisOnAllRoots(ThreadPool, ThreadMutex, AST);
+
+      // Wait for IWYU analysis to run in threads.
+      if (this->ThreadingEnabled) {
+        RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
+                            RulesetAnalysisWaitTimer);
+        ThreadPool.wait();
+      }
     }
 
     // Free all the matchers.
@@ -1019,6 +1539,8 @@ public:
       return;
     }
 
+    State->iwyuTrackEnterFile(FID);
+
     auto ContainingDirectory = OptionalFileEntryRef->getDir();
     if (!State->Dirs.contains(ContainingDirectory)) {
       RULESET_TIME_REGION(this->CI, Timer, this->State->getTiming(),
@@ -1051,7 +1573,7 @@ public:
               CI.getSourceManager().getOrCreateFileID(
                   ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
           State->Dirs[ContainingDirectory].ActualOnDiskConfigs =
-              State->loadClangRulesFromPreprocessor(ClangRulesFileID, SrcMgr);
+              State->loadClangRulesFromPreprocessor(ClangRulesFileID);
 
           // Add the .clang-rules to the dependencies so that external tools
           // such as UBT know to build again when the rules file changes.
@@ -1095,6 +1617,22 @@ public:
         }
       }
     }
+  }
+
+  virtual void InclusionDirective(SourceLocation HashLoc,
+                                  const Token &IncludeTok, StringRef FileName,
+                                  bool IsAngled, CharSourceRange FilenameRange,
+                                  OptionalFileEntryRef File,
+                                  StringRef SearchPath, StringRef RelativePath,
+                                  const Module *Imported,
+                                  SrcMgr::CharacteristicKind FileType) {
+    State->iwyuTrackInclusionDirective(HashLoc, File);
+  }
+
+  virtual void MacroExpands(const Token &MacroNameTok,
+                            const MacroDefinition &MD, SourceRange Range,
+                            const MacroArgs *Args) {
+    State->iwyuTrackMacroUsage(MD, Range);
   }
 };
 
