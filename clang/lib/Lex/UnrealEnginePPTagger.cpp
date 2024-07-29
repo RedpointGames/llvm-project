@@ -52,6 +52,9 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
                                         const MacroDefinition &MD,
                                         SourceRange Range,
                                         const MacroArgs *Args) {
+  if (this->PP.isParsingIfOrElifDirective()) {
+    return;
+  }
   if (MacroNameTok.isAnyIdentifier()) {
     llvm::StringRef MacroName = MacroNameTok.getIdentifierInfo()->getName();
     bool RequiresParameterHandling = false;
@@ -76,9 +79,11 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
       TokensToPush.push_back(
           TokenInfo(tok::TokenKind::annot_unreal_ufunction, nullptr));
       RequiresParameterHandling = true;
-    } else if (MacroName.ends_with("_API")) {
+    } else if (Args == nullptr && MacroName.ends_with("_API")) {
+      /*static long count = 0;
+      llvm::errs() << count++ << ": " << MacroName << "\n";
       TokensToPush.push_back(
-          TokenInfo(tok::TokenKind::annot_unreal_exported, nullptr));
+            TokenInfo(tok::TokenKind::annot_unreal_exported, nullptr));*/
     }
     if (RequiresParameterHandling && Args != nullptr) {
       assert(Args->getNumMacroArguments() == 1 &&
