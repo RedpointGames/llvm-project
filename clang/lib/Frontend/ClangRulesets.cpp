@@ -379,6 +379,7 @@ public:
   std::unique_ptr<llvm::Timer> RulesetAnalysisExecuteTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisScheduleTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisWaitTimer;
+  std::unique_ptr<llvm::Timer> RulesetIWYUAnalysisTimer;
 
   ClangRulesetsTiming()
       : RulesetTimerGroup(std::make_unique<llvm::TimerGroup>(
@@ -416,6 +417,10 @@ public:
             "ruleset-analysis-wait",
             "Time spent blocked waiting for analysis to complete on background "
             "threads",
+            *RulesetTimerGroup)),
+        RulesetIWYUAnalysisTimer(std::make_unique<llvm::Timer>(
+            "ruleset-iwyu-analysis",
+            "Time spent running include-what-you-use analysis",
             *RulesetTimerGroup)) {}
 #endif
 };
@@ -457,9 +462,6 @@ private:
   llvm::DenseMap<FileEntryRef, llvm::DenseSet<FileEntryRef>> IWYUDependencyTree;
   llvm::DenseMap<FileEntryRef, llvm::DenseMap<FileEntryRef, SourceLocation>>
       IWYUIncludeTree;
-  llvm::DenseMap<FileEntryRef, bool> IWYUIncludeIsCpp;
-  llvm::DenseSet<FileEntryRef> IWYURoots;
-  llvm::DenseSet<FileEntryRef> IWYUNonRoots;
 
 public:
   ClangRulesetsState(bool InThreadingEnabled, clang::CompilerInstance &InCI)
@@ -467,8 +469,7 @@ public:
         SrcMgr(InCI.getSourceManager()), Dirs(),
         Timing(std::make_unique<ClangRulesetsTiming>()),
         CreatedEffectiveConfigs(), RuleByNamespacedName(),
-        RulesetByNamespacedName(), IWYUDependencyTree(), IWYUIncludeTree(),
-        IWYUIncludeIsCpp(), IWYURoots(), IWYUNonRoots(){};
+        RulesetByNamespacedName(), IWYUDependencyTree(), IWYUIncludeTree(){};
   ClangRulesetsState(const ClangRulesetsState &) = delete;
   ClangRulesetsState(ClangRulesetsState &&) = delete;
   ~ClangRulesetsState() {
@@ -480,30 +481,6 @@ public:
   ClangRulesetsTiming *getTiming() { return this->Timing.get(); }
 
 public:
-  void iwyuTrackEnterFile(FileID FID) {
-    if (FID.isInvalid()) {
-      return;
-    }
-
-    auto OptionalFileEntry = SrcMgr.getFileEntryRefForID(FID);
-    if (!OptionalFileEntry.has_value()) {
-      return;
-    }
-    auto &FileEntry = *OptionalFileEntry;
-    if (IWYURoots.contains(FileEntry) || IWYUNonRoots.contains(FileEntry)) {
-      return;
-    }
-
-    if (FileEntry.getName().ends_with_insensitive(".cpp")) {
-      RULESET_IWYU_TRACE("adding iwyu root: " << FileEntry.getName() << "\n")
-      IWYURoots.insert(FileEntry);
-    } else {
-      RULESET_IWYU_TRACE("adding iwyu non-root: " << FileEntry.getName()
-                                                  << "\n")
-      IWYUNonRoots.insert(FileEntry);
-    }
-  }
-
   void iwyuTrackInclusionDirective(SourceLocation IncludingHashLoc,
                                    OptionalFileEntryRef IncludedFile) {
     if (!IncludedFile.has_value() || !IncludingHashLoc.isFileID()) {
@@ -514,13 +491,6 @@ public:
         SrcMgr.getFileEntryRefForID(SrcMgr.getFileID(IncludingHashLoc));
     if (!IncludingFile.has_value() || !IncludedFile.has_value()) {
       return;
-    }
-
-    if (!IWYUIncludeIsCpp.contains(*IncludedFile)) {
-      IWYUIncludeIsCpp.try_emplace(
-          *IncludedFile, IncludedFile->getName().ends_with_insensitive(".cpp"));
-      RULESET_IWYU_TRACE(
-          "evaluated iwyu 'is cpp' for: " << IncludedFile->getName() << "\n")
     }
 
     auto &List = IWYUIncludeTree.getOrInsertDefault(*IncludingFile);
@@ -724,6 +694,7 @@ private:
                        << "' for IWYU diagnostics complete\n")
   }
 
+#if 0
   void analyseFileForIWYURecursive(FileEntryRef CurrentFile,
                                    llvm::DenseSet<FileEntryRef> &ExaminedFiles,
                                    llvm::sys::SmartMutex<true> &Mutex,
@@ -771,6 +742,7 @@ private:
       }
     }
   }
+#endif
 
   class IWYUMatchFinder : public ast_matchers::MatchFinder::MatchCallback {
   private:
@@ -796,10 +768,12 @@ private:
       auto TargetFile = AST.getSourceManager().getFileEntryRefForID(FID);
       if (TargetFile.has_value()) {
         auto &List = State.IWYUDependencyTree.getOrInsertDefault(SourceRef);
-        List.insert(*TargetFile);
-        RULESET_IWYU_TRACE("IWYU C++ dependency adding '"
-                           << SourceRef.getName() << "' dependent on '"
-                           << TargetFile->getName() << "'\n")
+        if (!List.contains(*TargetFile)) {
+          List.insert(*TargetFile);
+          RULESET_IWYU_TRACE("IWYU C++ dependency adding '"
+                             << SourceRef.getName() << "' dependent on '"
+                             << TargetFile->getName() << "'\n")
+        }
       }
       Mutex.unlock();
     }
@@ -822,16 +796,6 @@ private:
       } else if (auto *D = Result.Nodes.getNodeAs<Decl>("decl")) {
         addSourceLocationDependency(D->getSourceRange().getBegin());
         addSourceLocationDependency(D->getSourceRange().getEnd());
-      } else if (auto *UD = Result.Nodes.getNodeAs<UsingDirectiveDecl>(
-                     "usingDirective")) {
-        auto *ND = UD->getNominatedNamespace();
-        if (ND != nullptr) {
-          for (const auto &RD : ND->redecls()) {
-            addSourceLocationDependency(RD->getLocation());
-          }
-        }
-      } else if (auto *UD = Result.Nodes.getNodeAs<UsingDecl>("using")) {
-        addSourceLocationDependency(UD->getNameInfo().getLoc());
       }
     }
   };
@@ -868,9 +832,6 @@ private:
         templateSpecializationType(forEachTemplateArgument(
             templateArgument(refersToDeclaration(decl().bind("decl"))))),
         &MatchFinder);
-    Finder.addMatcher(usingDirectiveDecl().bind("usingDirective"),
-                      &MatchFinder);
-    Finder.addMatcher(usingDecl().bind("using"), &MatchFinder);
     Finder.matchDecl(Decl, AST);
   }
 
@@ -1381,8 +1342,8 @@ public:
     llvm::sys::SmartMutex<true> ThreadMutex;
     llvm::ThreadPool ThreadPool;
 
-    // Track whether we ever included any file that would turn on IWYU analysis.
-    bool ShouldRunIWYUAnalysis = false;
+    // Track a list of files that we'll run IWYU analysis on.
+    llvm::DenseSet<FileEntryRef> IWYUAnalysisFiles;
 
     // Iterate through all of the decls in the translation unit.
     for (const auto &DeclEntry : UnitDeclEntry->decls()) {
@@ -1450,6 +1411,11 @@ public:
           RULESET_TRACE("instantiated matcher\n");
           SharedEffectiveConfigToInstantiatedMatchers[CurrentEffectiveConfig] =
               Matcher;
+
+          if (CurrentEffectiveConfig->EffectiveIWYUAnalysis ==
+              config::ClangRulesIWYUAnalysis::CRIA_On) {
+            IWYUAnalysisFiles.insert(*FileEntry);
+          }
         }
       }
 
@@ -1480,7 +1446,6 @@ public:
       if (CurrentEffectiveConfig != nullptr &&
           CurrentEffectiveConfig->EffectiveIWYUAnalysis ==
               config::ClangRulesIWYUAnalysis::CRIA_On) {
-        ShouldRunIWYUAnalysis = true;
         collectIWYUDependenciesForDecl(
             *SrcMgr.getFileEntryRefForID(CurrentFileID), DeclEntry, ThreadMutex,
             AST);
@@ -1497,13 +1462,27 @@ public:
     // After all matchers have run (and we've potentially collected IWYU
     // dependency data from the AST), run IWYU analysis in parallel across the
     // files that have IWYU analysis enabled.
-    if (ShouldRunIWYUAnalysis) {
-      runIWYUAnalysisOnAllRoots(ThreadPool, ThreadMutex, AST);
+    if (IWYUAnalysisFiles.size() > 0) {
+      RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
+                          RulesetIWYUAnalysisTimer);
+
+      // Schedule or run IWYU analysis.
+      for (const auto &AnalysisFile : IWYUAnalysisFiles) {
+        if (this->ThreadingEnabled) {
+          ThreadPool.async(
+              [this](FileEntryRef AnalysisFile,
+                     llvm::sys::SmartMutex<true> *ThreadMutex,
+                     ASTContext *AST) {
+                this->analyseFileForIWYU(AnalysisFile, *ThreadMutex, *AST);
+              },
+              AnalysisFile, &ThreadMutex, &AST);
+        } else {
+          analyseFileForIWYU(AnalysisFile, ThreadMutex, AST);
+        }
+      }
 
       // Wait for IWYU analysis to run in threads.
       if (this->ThreadingEnabled) {
-        RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
-                            RulesetAnalysisWaitTimer);
         ThreadPool.wait();
       }
     }
@@ -1532,16 +1511,15 @@ public:
   virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
                                 SrcMgr::CharacteristicKind FileType,
                                 FileID PrevFID, SourceLocation Loc) override {
-    auto &SrcMgr = CI.getSourceManager();
-    auto OptionalFileEntryRef = SrcMgr.getFileEntryRefForID(FID);
+    SourceManager &SrcMgr = CI.getSourceManager();
+    OptionalFileEntryRef OptionalFileEntryRef =
+        SrcMgr.getFileEntryRefForID(FID);
     if (!OptionalFileEntryRef.has_value()) {
       // If there's no file entry for the new file, we don't process it.
       return;
     }
 
-    State->iwyuTrackEnterFile(FID);
-
-    auto ContainingDirectory = OptionalFileEntryRef->getDir();
+    DirectoryEntryRef ContainingDirectory = OptionalFileEntryRef->getDir();
     if (!State->Dirs.contains(ContainingDirectory)) {
       RULESET_TIME_REGION(this->CI, Timer, this->State->getTiming(),
                           RulesetLoadClangRulesTimer);
@@ -1564,7 +1542,7 @@ public:
         // Go check this directory for a .clangrules file.
         llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
         llvm::sys::path::append(ClangRulesPath, ".clang-rules");
-        auto ClangRulesFile =
+        llvm::Expected<FileEntryRef> ClangRulesFile =
             CI.getFileManager().getFileRef(ClangRulesPath, true, true);
         if (ClangRulesFile) {
           // We got a .clangrules file in this directory; load it into the
@@ -1589,6 +1567,7 @@ public:
         } else {
           // We did not get a .clangrules file in this directory; cache that
           // it is empty.
+          consumeError(ClangRulesFile.takeError());
           State->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
         }
         // Modify CurrentAbsolutePath so that it contains the next parent path
@@ -1603,7 +1582,7 @@ public:
           // No further parent directories.
           break;
         } else {
-          auto OptionalParentDirectory =
+          llvm::Expected<DirectoryEntryRef> OptionalParentDirectory =
               CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
           if (!OptionalParentDirectory) {
             // Can't get parent directory.
