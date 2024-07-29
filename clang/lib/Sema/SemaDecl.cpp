@@ -18059,26 +18059,7 @@ CreateNewDecl:
 
   // @unreal: BEGIN
   AddUnrealSpecifiersForDecl(New);
-  if (CXXRecordDecl *CRD = dyn_cast<CXXRecordDecl>(New)) {
-    std::string InterfaceName = New->getName().str();
-    if (New->UnrealType == UnrealType::UT_UInterface) {
-      if (InterfaceName.size() > 0 && InterfaceName[0] == 'U') {
-        InterfaceName[0] = 'I';
-        this->ExpectedIInterfaceToUInterfaceAttachments.insert(
-            std::pair<std::string, CXXRecordDecl *>(InterfaceName, CRD));
-      }
-    } else if (New->UnrealType == UnrealType::UT_None &&
-               this->ExpectedIInterfaceToUInterfaceAttachments.find(
-                   InterfaceName) !=
-                   this->ExpectedIInterfaceToUInterfaceAttachments.end()) {
-      CXXRecordDecl *UInterfaceDecl =
-          this->ExpectedIInterfaceToUInterfaceAttachments[InterfaceName];
-      UInterfaceDecl->IInterfaceAttachment = CRD;
-      CRD->UInterfaceAttachment = UInterfaceDecl;
-      CRD->UnrealType = UnrealType::UT_IInterface;
-      this->ExpectedIInterfaceToUInterfaceAttachments.erase(InterfaceName);
-    }
-  }
+  ProcessUnrealInterfaceMappings(New);
   // @unreal: END
 
   if (ModulePrivateLoc.isValid()) {

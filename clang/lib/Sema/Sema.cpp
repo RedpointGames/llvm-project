@@ -201,7 +201,7 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       DataSegStack(nullptr), BSSSegStack(nullptr), ConstSegStack(nullptr),
       CodeSegStack(nullptr), StrictGuardStackCheckStack(false),
       // @unreal: BEGIN
-      UnrealStack(), ExpectedIInterfaceToUInterfaceAttachments(),
+      #include "Sema.ConstructorInit.Unreal.h"
       // @unreal: END
       FpPragmaStack(FPOptionsOverride()), CurInitSeg(nullptr),
       VisContext(nullptr), PragmaAttributeCurrentTargetDecl(nullptr),

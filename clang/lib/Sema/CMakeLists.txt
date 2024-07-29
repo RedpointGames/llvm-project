@@ -66,6 +66,7 @@ add_clang_library(clangSema
   SemaTemplateInstantiateDecl.cpp
   SemaTemplateVariadic.cpp
   SemaType.cpp
+  Sema.Unreal.cpp
   TypeLocBuilder.cpp
 
   DEPENDS

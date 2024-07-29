@@ -50,77 +50,6 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
   }
 }
 
-// @unreal: BEGIN
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch-enum"
-#elif defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4062)
-#endif
-void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
-  if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
-    while (this->UnrealStack.size() > 0) {
-      const auto &Current = this->UnrealStack[0];
-      switch (Current.Kind) {
-      case tok::annot_unreal_exported: {
-        ND->UnrealExported = true;
-        break;
-      }
-      case tok::annot_unreal_uproperty: {
-        if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
-          ND->UnrealType = UnrealType::UT_UProperty;
-        }
-        break;
-      }
-      case tok::annot_unreal_ufunction: {
-        if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
-          ND->UnrealType = UnrealType::UT_UFunction;
-        }
-        break;
-      }
-      case tok::annot_unreal_uclass: {
-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
-          ND->UnrealType = UnrealType::UT_UClass;
-        }
-        break;
-      }
-      case tok::annot_unreal_uinterface: {
-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
-          ND->UnrealType = UnrealType::UT_UInterface;
-        }
-        break;
-      }
-      case tok::annot_unreal_ustruct: {
-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
-          ND->UnrealType = UnrealType::UT_UStruct;
-        }
-        break;
-      }
-      case tok::annot_unreal_specifier: {
-        if (ND->UnrealType != UnrealType::UT_None) {
-          ND->UnrealSpecifiers.push_back(Current.SpecData);
-        }
-        break;
-      }
-      case tok::annot_unreal_metadata_specifier: {
-        if (ND->UnrealType != UnrealType::UT_None) {
-          ND->UnrealMetadata.push_back(Current.SpecData);
-        }
-        break;
-      }
-      }
-      this->UnrealStack.erase(this->UnrealStack.begin());
-    }
-  }
-}
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(_MSC_VER)
-#pragma warning(pop)
-#endif
-// @unreal: END
-
 void Sema::AddAlignmentAttributesForRecord(RecordDecl *RD) {
   AlignPackInfo InfoVal = AlignPackStack.CurrentValue;
   AlignPackInfo::Mode M = InfoVal.getAlignMode();
@@ -389,40 +318,6 @@ void Sema::ActOnPragmaClangSection(SourceLocation PragmaLoc,
   CSec->SectionName = std::string(SecName);
   CSec->PragmaLocation = PragmaLoc;
 }
-
-// @unreal: BEGIN
-void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
-                           const UnrealSpecifier &UnrealData) {
-  if (Kind == tok::TokenKind::annot_unreal_uinterface &&
-      UnrealStack.size() == 1 &&
-      UnrealStack[0].Kind == tok::TokenKind::annot_unreal_uclass) {
-    // This is an expected scenario because the UINTERFACE macro maps
-    // to 'UCLASS()' during actual compilation.
-    UnrealStack.clear();
-  }
-  if (UnrealStack.size() != 0 &&
-      (Kind == tok::TokenKind::annot_unreal_uclass ||
-       Kind == tok::TokenKind::annot_unreal_ufunction ||
-       Kind == tok::TokenKind::annot_unreal_ustruct ||
-       Kind == tok::TokenKind::annot_unreal_uinterface ||
-       Kind == tok::TokenKind::annot_unreal_uproperty)) {
-    Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
-    for (const auto &Entry : UnrealStack) {
-      Diag(Entry.Loc, diag::note_unreal_data_previous_location);
-    }
-    UnrealStack.clear();
-  }
-  if (UnrealStack.size() == 0 &&
-      (Kind == tok::TokenKind::annot_unreal_specifier ||
-       Kind == tok::TokenKind::annot_unreal_metadata_specifier)) {
-    assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
-                    "macro was pushed first!");
-  }
-  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData, TokenLoc));
-  assert((UnrealStack.size() < 1000) &&
-         "Unreal stack not being consumed by type declaration.");
-}
-// @unreal: END
 
 void Sema::ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
                            StringRef SlotLabel, Expr *alignment) {

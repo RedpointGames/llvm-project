@@ -818,22 +818,6 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
 
   Decl *SingleDecl = nullptr;
   switch (Tok.getKind()) {
-  // @unreal: BEGIN
-  case tok::annot_unreal_uclass:
-  case tok::annot_unreal_ufunction:
-  case tok::annot_unreal_uproperty:
-  case tok::annot_unreal_uinterface:
-  case tok::annot_unreal_ustruct:
-  case tok::annot_unreal_specifier:
-  case tok::annot_unreal_metadata_specifier:
-    if (Tok.getAnnotationValue() == nullptr) {
-      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
-    } else {
-      HandlePragmaUnreal(Tok.getKind(),
-                         *(UnrealSpecifier *)Tok.getAnnotationValue());
-    }
-    return nullptr;
-  // @unreal: END
   case tok::annot_pragma_vis:
     HandlePragmaVisibility();
     return nullptr;
