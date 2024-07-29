@@ -3467,6 +3467,15 @@ def warn_unreal_data_discarded_on_new_specifier : Warning<
   InGroup<UnrealEngine>;
 def note_unreal_data_previous_location : Note<
   "previously discarded metadata was located here">;
+def err_unreal_annotation_found_in_unexpected_place : Error<
+  "Unreal Engine macro used in unexpected place">;
+def warn_iwyu_remove_unused_header : Warning<
+  "#include header is completely unused and can be removed">, 
+  InGroup<IncludeWhatYouUse>;
+def warn_iwyu_replace_unused_header : Warning<
+  "#include header does not contain any immediate dependency "
+  "and can be replaced with an #include to '%0' instead">, 
+  InGroup<IncludeWhatYouUse>;
 // @unreal: END
 
 def err_anonymous_property: Error<

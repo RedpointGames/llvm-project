@@ -82,7 +82,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
     } else if (Args == nullptr && MacroName.ends_with("_API")) {
       /*static long count = 0;
       llvm::errs() << count++ << ": " << MacroName << "\n";
-      TokensToPush.push_back(
+        TokensToPush.push_back(
             TokenInfo(tok::TokenKind::annot_unreal_exported, nullptr));*/
     }
     if (RequiresParameterHandling && Args != nullptr) {
