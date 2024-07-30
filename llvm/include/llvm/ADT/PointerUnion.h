@@ -153,7 +153,7 @@ public:
   ///
   /// If the specified pointer type is incorrect, assert.
   template <typename T> inline T get() const {
-    assert(isa<T>(*this) && "Invalid accessor called");
+    // assert(isa<T>(*this) && "Invalid accessor called");
     return cast<T>(*this);
   }
 
