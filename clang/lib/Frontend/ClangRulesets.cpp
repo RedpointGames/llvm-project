@@ -1353,7 +1353,8 @@ public:
                             RulesetAnalysisFileCheckTimer);
 
         // Get the location of this decl.
-        FileID NewFileID = SrcMgr.getFileID(DeclEntry->getLocation());
+        FileID NewFileID =
+            SrcMgr.getFileID(SrcMgr.getFileLoc(DeclEntry->getLocation()));
         if (NewFileID.isInvalid()) {
           // Ignore any decls that have no file ID.
           continue;
