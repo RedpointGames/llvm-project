@@ -823,104 +823,6 @@ private:
     }
   }
 
-#if 0
-  class IWYUMatchFinder : public ast_matchers::MatchFinder::MatchCallback {
-  private:
-    ClangRulesetsState &State;
-    FileEntryRef &SourceRef;
-    llvm::DenseSet<FileID> &FileIDsAlreadyAdded;
-    llvm::sys::SmartMutex<true> &Mutex;
-    ASTContext &AST;
-
-    void addSourceLocationDependency(const SourceLocation &Loc) {
-      auto FID = AST.getSourceManager().getFileID(Loc);
-      if (FID.isInvalid()) {
-        return;
-      }
-      if (FileIDsAlreadyAdded.contains(FID)) {
-        return;
-      }
-      Mutex.lock();
-      if (FileIDsAlreadyAdded.contains(FID)) {
-        return;
-      }
-      FileIDsAlreadyAdded.insert(FID);
-      auto TargetFile = AST.getSourceManager().getFileEntryRefForID(FID);
-      if (TargetFile.has_value() && TargetFile != SourceRef) {
-        auto &List = State.IWYUDependencyTree.getOrInsertDefault(SourceRef);
-        if (!List.contains(*TargetFile)) {
-          List.insert(*TargetFile);
-          RULESET_TRACE_IWYU_MUTEX(Mutex, "Add C++ dependency from '"
-                                              << SourceRef.getName()
-                                              << "' depending on '"
-                                              << TargetFile->getName() << "'\n")
-        }
-      }
-      Mutex.unlock();
-    }
-
-  public:
-    IWYUMatchFinder(ClangRulesetsState &InState, FileEntryRef &InSourceRef,
-                    llvm::DenseSet<FileID> &InFileIDsAlreadyAdded,
-                    llvm::sys::SmartMutex<true> &InMutex, ASTContext &InAST)
-        : State(InState), SourceRef(InSourceRef),
-          FileIDsAlreadyAdded(InFileIDsAlreadyAdded), Mutex(InMutex),
-          AST(InAST) {}
-
-    virtual void
-    run(const ast_matchers::MatchFinder::MatchResult &Result) override {
-      if (auto *T = Result.Nodes.getNodeAs<Type>("type")) {
-        if (auto *TD = T->getAsTagDecl()) {
-          addSourceLocationDependency(TD->getSourceRange().getBegin());
-          addSourceLocationDependency(TD->getSourceRange().getEnd());
-        }
-      } else if (auto *D = Result.Nodes.getNodeAs<Decl>("decl")) {
-        addSourceLocationDependency(D->getSourceRange().getBegin());
-        addSourceLocationDependency(D->getSourceRange().getEnd());
-      }
-    }
-  };
-
-  void collectIWYUDependenciesForDecl(FileEntryRef FileWithDecl, Decl *Decl,
-                                      llvm::sys::SmartMutex<true> &Mutex,
-                                      ASTContext &AST) {
-    RULESET_TRACE_IWYU_DECL_MUTEX_WITH_DECL_DUMP(
-        Mutex, Decl,
-        "IWYU C++ dependency: Finding dependencies under decl in file '"
-            << FileWithDecl.getName() << "':\n")
-    using namespace ast_matchers;
-    llvm::DenseSet<FileID> FileIDsAlreadyAdded;
-    ast_matchers::MatchFinder Finder;
-    IWYUMatchFinder MatchFinder(*this, FileWithDecl, FileIDsAlreadyAdded, Mutex,
-                                AST);
-    Finder.addMatcher(type().bind("type"), &MatchFinder);
-    Finder.addMatcher(callExpr(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(memberExpr(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(cxxOperatorCallExpr(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(cxxConstructExpr(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(cxxNewExpr(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(declRefExpr(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(typedefType(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(
-        templateSpecializationType(hasDeclaration(decl().bind("decl"))),
-        &MatchFinder);
-    Finder.addMatcher(templateTypeParmType(hasDeclaration(decl().bind("decl"))),
-                      &MatchFinder);
-    Finder.addMatcher(
-        templateSpecializationType(forEachTemplateArgument(
-            templateArgument(refersToDeclaration(decl().bind("decl"))))),
-        &MatchFinder);
-    Finder.matchDecl(Decl, AST);
-  }
-#endif
-
 public:
   std::unique_ptr<std::vector<config::ClangRules>>
   loadClangRulesFromPreprocessor(clang::FileID &FileID) {
@@ -1569,20 +1471,6 @@ public:
           Matcher->match(CurrentFileEntry, DeclEntry);
         }
       }
-
-#if 0
-      // If there is a current effective config, and we have IWYU analysis
-      // enabled, use matchers on this decl to collect references as
-      // dependencies.
-      if (CurrentEffectiveConfig != nullptr &&
-          CurrentEffectiveConfig->EffectiveIWYUAnalysis ==
-              config::ClangRulesIWYUAnalysis::CRIA_On) {
-        collectIWYUDependenciesForDecl(
-            *SrcMgr.getFileEntryRefForID(CurrentFileID), DeclEntry, ThreadMutex,
-            AST);
-      }
-#endif
-
 #endif
     }
 
@@ -1607,13 +1495,6 @@ public:
           analyseFileForIWYU(AnalysisFile, ThreadMutex, AST);
         }
       }
-
-#if 0
-      // Wait for IWYU analysis to run in threads.
-      if (this->ThreadingEnabled) {
-        ThreadPool.wait();
-      }
-#endif
     }
 #endif
 
