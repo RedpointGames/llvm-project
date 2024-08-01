@@ -19,4 +19,5 @@ REGISTER_MATCHER(withIInterface);
 REGISTER_MATCHER(withUInterface);
 REGISTER_MATCHER(isExpensiveToCopy);
 REGISTER_MATCHER(isUnrealExported);
+REGISTER_MATCHER(isNamespaceSpecifierRootedToGlobal);
 // @unreal: END
