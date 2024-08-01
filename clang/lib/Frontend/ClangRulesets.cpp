@@ -666,6 +666,7 @@ private:
   llvm::DenseMap<FileEntryRef, llvm::DenseSet<FileEntryRef>> IWYUDependencyTree;
   llvm::DenseMap<FileEntryRef, llvm::DenseMap<FileEntryRef, SourceLocation>>
       IWYUIncludeTree;
+  llvm::DenseSet<FileEntryRef> IWYUIncludeMustTrack;
   clang::FileID LastIWYUFileID;
   clang::OptionalFileEntryRef LastIWYUFileEntry;
 
@@ -676,7 +677,7 @@ public:
         Timing(std::make_unique<ClangRulesetsTiming>()),
         CreatedEffectiveConfigs(), RuleByNamespacedName(),
         RulesetByNamespacedName(), IWYUDependencyTree(), IWYUIncludeTree(),
-        LastIWYUFileID(), LastIWYUFileEntry(){};
+        IWYUIncludeMustTrack(), LastIWYUFileID(), LastIWYUFileEntry(){};
   ClangRulesetsState(const ClangRulesetsState &) = delete;
   ClangRulesetsState(ClangRulesetsState &&) = delete;
   ~ClangRulesetsState() {
@@ -690,8 +691,7 @@ public:
 public:
   void iwyuTrackInclusionDirective(SourceLocation IncludingHashLoc,
                                    OptionalFileEntryRef IncludedFile) {
-    llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState>::iterator
-        DirState;
+
     {
       RULESET_TIME_REGION_BEFORE_ANALYSIS(
           this->CI, Timer, this->Timing,
@@ -708,12 +708,18 @@ public:
       if (!LastIWYUFileEntry) {
         return;
       }
-      DirState = this->Dirs.find(LastIWYUFileEntry->getDir());
+    }
+    // @note: If A has IWYU enabled, and it includes B, then we must track B's
+    // includes so that transitive dependency checks work (i.e. if A uses a
+    // function from a header that B includes, we don't want to incorrectly
+    // report that the header B isn't used because we can't reach the dependency
+    // via B's headers). The IWYUIncludeMustTrack set keeps track of these
+    // files.
+    if (!IWYUIncludeMustTrack.contains(*LastIWYUFileEntry)) {
+      auto DirState = this->Dirs.find(LastIWYUFileEntry->getDir());
       if (DirState == this->Dirs.end()) {
         return;
       }
-    }
-    {
       if (!DirState->second.Materialized) {
         RULESET_TIME_REGION_BEFORE_ANALYSIS(
             this->CI, MaterializationTimer, this->Timing,
@@ -733,6 +739,7 @@ public:
           RulesetIWYUPreprocessorCaptureIncludeDependencyInsertTimer);
       auto &List = IWYUIncludeTree.getOrInsertDefault(*LastIWYUFileEntry);
       List.try_emplace(*IncludedFile, IncludingHashLoc);
+      IWYUIncludeMustTrack.insert(*IncludedFile);
       RULESET_TRACE_IWYU_PREPROCESSOR(
           "File '" << LastIWYUFileEntry->getName() << "' includes file '"
                    << IncludedFile->getName() << "'\n")
@@ -795,7 +802,76 @@ public:
     }
   }
 
-  void iwyuTrackSemaUsage(LookupResult &Result) {
+  void iwyuTrackSemaUsageDecl(llvm::DenseSet<FileEntryRef> *DepList,
+                              NamedDecl *Dest,
+                              const OptionalFileEntryRef &UsageFile,
+                              bool ScanRedecls) {
+    // Add this decl.
+    auto DestEntry = SrcMgr.getFileEntryRefForID(
+        SrcMgr.getFileID(SrcMgr.getFileLoc(Dest->getLocation())));
+    if (DestEntry) {
+      if (DepList == nullptr) {
+        DepList = &IWYUDependencyTree.getOrInsertDefault(*UsageFile);
+      }
+#if RULESET_ENABLE_TRACING_IWYU
+      if (!DepList->contains(*DestEntry)) {
+        RULESET_TRACE_IWYU("C++ sema dependency: '"
+                           << UsageFile->getName() << "' depends on decl '"
+                           << Dest->getDeclName() << "' ('"
+                           << Dest->getDeclKindName() << "') in '"
+                           << DestEntry->getName() << "'\n")
+      }
+#endif
+      DepList->insert(*DestEntry);
+    } else {
+      RULESET_TRACE_IWYU("C++ sema dependency: skipped (no file location)\n")
+    }
+
+    // Also add dependencies on the underlying decl for things that have been
+    // aliased.
+    NamedDecl *UnderlyingDecl = Dest->getUnderlyingDecl();
+    if (UnderlyingDecl != nullptr && UnderlyingDecl != Dest) {
+      RULESET_TRACE_IWYU("C++ sema dependency had underlying decl.\n")
+      this->iwyuTrackSemaUsageDecl(DepList, UnderlyingDecl, UsageFile,
+                                   ScanRedecls);
+    }
+
+    // If this is a tag decl, add a dependency on all non-forward redeclarations
+    // to catch scenarios where a forward declaration occurs after the real
+    // declaration due to header include ordering.
+    if (ScanRedecls && isa<TagDecl>(Dest)) {
+      TagDecl *TD = cast<TagDecl>(Dest);
+      for (const auto &Redecl : TD->redecls()) {
+        if (Redecl == nullptr) {
+          continue;
+        }
+        if (Redecl == Dest) {
+          RULESET_TRACE_IWYU(
+              "C++ sema dependency redecl: (same) '"
+              << Redecl->getDeclName() << "' ('"
+              << ((DeclContext *)Redecl)->getDeclKindName() << "') "
+              << Redecl->getLocation().printToString(SrcMgr) << "\n")
+          continue;
+        }
+        if (!Redecl->isCompleteDefinition()) {
+          RULESET_TRACE_IWYU(
+              "C++ sema dependency redecl: (incomplete) '"
+              << Redecl->getDeclName() << "' ('"
+              << ((DeclContext *)Redecl)->getDeclKindName() << "') "
+              << Redecl->getLocation().printToString(SrcMgr) << "\n")
+          continue;
+        }
+        RULESET_TRACE_IWYU(
+            "C++ sema dependency redecl: (recursing) '"
+            << Redecl->getDeclName() << "' ('"
+            << ((DeclContext *)Redecl)->getDeclKindName() << "') "
+            << Redecl->getLocation().printToString(SrcMgr) << "\n")
+        this->iwyuTrackSemaUsageDecl(DepList, Redecl, UsageFile, false);
+      }
+    }
+  }
+
+  void iwyuTrackSemaUsageInternal(LookupResult &Result) {
     llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState>::iterator
         DirState;
     {
@@ -838,31 +914,17 @@ public:
         if (Dest == nullptr) {
           continue;
         }
-        auto DestEntry = SrcMgr.getFileEntryRefForID(
-            SrcMgr.getFileID(SrcMgr.getFileLoc(Dest->getLocation())));
-        if (DestEntry) {
-          if (DepList == nullptr) {
-            DepList = &IWYUDependencyTree.getOrInsertDefault(*UsageFile);
-          }
-#if RULESET_ENABLE_TRACING_IWYU
-          if (!DepList->contains(*DestEntry)) {
-            RULESET_TRACE_IWYU("C++ sema dependency: '"
-                               << UsageFile->getName() << "' depends on '"
-                               << DestEntry->getName() << "'\n")
-          }
-#endif
-          DepList->insert(*DestEntry);
-        }
+        this->iwyuTrackSemaUsageDecl(DepList, Dest, UsageFile, true);
       }
     }
   }
 
   void iwyuTrackSemaUsage(LookupResult &Result, Scope *Scope) {
-    iwyuTrackSemaUsage(Result);
+    iwyuTrackSemaUsageInternal(Result);
   }
 
   void iwyuTrackSemaUsage(LookupResult &Result, DeclContext *LookupCtx) {
-    iwyuTrackSemaUsage(Result);
+    iwyuTrackSemaUsageInternal(Result);
   }
 
 private:
