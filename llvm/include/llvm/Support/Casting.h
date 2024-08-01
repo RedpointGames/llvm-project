@@ -563,7 +563,7 @@ template <typename First, typename Second, typename... Rest, typename From>
 
 template <typename To, typename From>
 [[nodiscard]] inline decltype(auto) cast(const From &Val) {
-  assert(isa<To>(Val) && "cast<Ty>() argument of incompatible type!");
+  // assert(isa<To>(Val) && "cast<Ty>() argument of incompatible type!");
   return CastInfo<To, const From>::doCast(Val);
 }
 

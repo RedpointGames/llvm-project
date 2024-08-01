@@ -18,4 +18,5 @@ REGISTER_MATCHER(isMissingDllImportOrExport);
 REGISTER_MATCHER(isPODType);
 REGISTER_MATCHER(hasRedundantNamespacing);
 REGISTER_MATCHER(isExpensiveToCopy);
+REGISTER_MATCHER(isUnrealExported);
 // @unreal: END

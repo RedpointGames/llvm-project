@@ -4717,20 +4717,6 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
       continue;
     }
 
-    // @unreal: BEGIN
-    if (Tok.isOneOf(tok::annot_unreal_ufunction, tok::annot_unreal_uproperty,
-                    tok::annot_unreal_specifier,
-                    tok::annot_unreal_metadata_specifier)) {
-      if (Tok.getAnnotationValue() == nullptr) {
-        HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
-      } else {
-        HandlePragmaUnreal(Tok.getKind(),
-                           *(UnrealSpecifier *)Tok.getAnnotationValue());
-      }
-      continue;
-    }
-    // @unreal: END
-
     // Parse _Static_assert declaration.
     if (Tok.isOneOf(tok::kw__Static_assert, tok::kw_static_assert)) {
       SourceLocation DeclEnd;
@@ -6186,9 +6172,6 @@ void Parser::ParseTypeQualifierListOpt(
 void Parser::ParseDeclarator(Declarator &D) {
   /// This implements the 'declarator' production in the C grammar, then checks
   /// for well-formedness and issues diagnostics.
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
   Actions.runWithSufficientStackSpace(D.getBeginLoc(), [&] {
     ParseDeclaratorInternal(D, &Parser::ParseDirectDeclarator);
   });
@@ -6488,10 +6471,6 @@ static SourceLocation getMissingDeclaratorIdLoc(Declarator &D,
 /// in isConstructorDeclarator.
 void Parser::ParseDirectDeclarator(Declarator &D) {
   DeclaratorScopeObj DeclScopeObj(*this, D.getCXXScopeSpec());
-
-  // @unreal: BEGIN
-  CheckNoPragmaUnreal();
-  // @unreal: END
 
   if (getLangOpts().CPlusPlus && D.mayHaveIdentifier()) {
     // This might be a C++17 structured binding.

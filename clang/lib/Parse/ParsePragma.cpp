@@ -721,44 +721,6 @@ void Parser::HandlePragmaVisibility() {
   Actions.ActOnPragmaVisibility(VisType, VisLoc);
 }
 
-// @unreal: BEGIN
-/// Consume any and all Unreal Engine tokens into the stack.
-void Parser::ConsumePragmaUnreal() {
-  while (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
-                     tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
-                     tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
-                     tok::annot_unreal_metadata_specifier)) {
-    if (Tok.getAnnotationValue() == nullptr) {
-      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
-    } else {
-      HandlePragmaUnreal(Tok.getKind(),
-                         *(UnrealSpecifier *)Tok.getAnnotationValue());
-    }
-  }
-}
-
-void Parser::CheckNoPragmaUnreal() {
-  if (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
-                  tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
-                  tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
-                  tok::annot_unreal_metadata_specifier)) {
-    Diag(Tok.getLocation(), diag::err_expected_member_name_or_semi)
-        << SourceRange();
-    assert(!Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
-                        tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
-                        tok::annot_unreal_uproperty,
-                        tok::annot_unreal_specifier,
-                        tok::annot_unreal_metadata_specifier));
-  }
-}
-
-void Parser::HandlePragmaUnreal(tok::TokenKind Kind,
-                                const UnrealSpecifier &UnrealData) {
-  Actions.ActOnUnrealData(Tok.getLocation(), Kind, UnrealData);
-  ConsumeAnnotationToken();
-}
-// @unreal: END
-
 void Parser::HandlePragmaPack() {
   assert(Tok.is(tok::annot_pragma_pack));
   Sema::PragmaPackInfo *Info =
