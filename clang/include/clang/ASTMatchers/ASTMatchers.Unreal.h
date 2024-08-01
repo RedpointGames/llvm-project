@@ -487,7 +487,7 @@ inline bool hasDeletedCopyConstructor(QualType Type) {
 }
 
 inline std::optional<bool> isExpensiveToCopyNode(QualType Type,
-                                      const ASTContext &Context) {
+                                                 const ASTContext &Context) {
   if (Type->isDependentType() || Type->isIncompleteType())
     return std::nullopt;
   return !Type.isTriviallyCopyableType(Context) &&
@@ -509,8 +509,27 @@ AST_MATCHER(QualType, isExpensiveToCopy) {
 /// \endcode
 /// \c namedDecl(isUnrealExported())
 ///   matches the class.
-AST_MATCHER(NamedDecl, isUnrealExported) {
-  return Node.UnrealExported;
+AST_MATCHER(NamedDecl, isUnrealExported) { return Node.UnrealExported; }
+
+/// Matches if a nested namespace specifier is rooted to the global namespace.
+///
+/// Given
+/// \code
+///   using namespace A::B::C;
+///   using namespace ::A::B::C;
+/// \endcode
+/// \c
+/// usingDirectiveDecl(has(nestedNameSpecifier(isNamespaceSpecifierRootedToGlobal())))
+///   matches the second 'using namespace' directive.
+AST_MATCHER(NestedNameSpecifier, isNamespaceSpecifierRootedToGlobal) {
+  const NestedNameSpecifier *Current = &Node;
+  while (Current != nullptr) {
+    if (Current->getKind() == NestedNameSpecifier::SpecifierKind::Global) {
+      return true;
+    }
+    Current = Current->getPrefix();
+  }
+  return false;
 }
 
 // @unreal: END

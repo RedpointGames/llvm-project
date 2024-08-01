@@ -19,4 +19,5 @@ REGISTER_MATCHER(isPODType);
 REGISTER_MATCHER(hasRedundantNamespacing);
 REGISTER_MATCHER(isExpensiveToCopy);
 REGISTER_MATCHER(isUnrealExported);
+REGISTER_MATCHER(isNamespaceSpecifierRootedToGlobal);
 // @unreal: END
