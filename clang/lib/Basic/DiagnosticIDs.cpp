@@ -22,6 +22,9 @@
 #include "llvm/Support/ErrorHandling.h"
 #include <map>
 #include <optional>
+// @unreal: BEGIN
+#include "llvm/Support/xxhash.h"
+// @unreal: END
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -156,7 +159,7 @@ const StaticDiagInfoRec StaticDiagInfo[] = {
       SHOWINSYSHEADER,                                                         \
       SHOWINSYSMACRO,                                                          \
       GROUP,                                                                   \
-	    DEFERRABLE,                                                              \
+        DEFERRABLE,                                                              \
       STR_SIZE(DESC, uint16_t)},
 #include "clang/Basic/DiagnosticCommonKinds.inc"
 #include "clang/Basic/DiagnosticDriverKinds.inc"
@@ -370,6 +373,11 @@ bool DiagnosticIDs::isDeferrable(unsigned DiagID) {
   return false;
 }
 
+// @unreal: BEGIN
+// @note: We've replaced custom diagnostic information entirely
+// so we can support silencing ruleset rules via pragmas.
+#include "DiagnosticIDs.UnrealImpl.h"
+// @unreal: END
 //===----------------------------------------------------------------------===//
 // Common Diagnostic implementation
 //===----------------------------------------------------------------------===//
@@ -453,6 +461,12 @@ DiagnosticIDs::Level
 DiagnosticIDs::getDiagnosticLevel(unsigned DiagID, SourceLocation Loc,
                                   const DiagnosticsEngine &Diag) const {
   unsigned DiagClass = getDiagClass(DiagID);
+    // @unreal: BEGIN
+    auto CustomSeverity = getDiagnosticSeverity(DiagID, Loc, Diag);
+    if (CustomSeverity != diag::Severity::Fatal) {
+      return toLevel(CustomSeverity);
+    }
+    // @unreal: END
   if (DiagClass == CLASS_NOTE) return DiagnosticIDs::Note;
   return toLevel(getDiagnosticSeverity(DiagID, Loc, Diag));
 }

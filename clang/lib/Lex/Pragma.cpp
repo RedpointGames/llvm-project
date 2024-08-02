@@ -1358,6 +1358,11 @@ public:
                                                 : diag::Flavor::Remark;
     StringRef Group = StringRef(WarningName).substr(2);
     bool unknownDiag = false;
+    // @unreal: BEGIN
+    // @note: This is moved to give callbacks an opportunity to register diagnostics.
+    if (Callbacks)
+      Callbacks->PragmaDiagnostic(DiagLoc, Namespace, SV, WarningName);
+    // @unreal: END
     if (Group == "everything") {
       // Special handling for pragma clang diagnostic ... "-Weverything".
       // There is no formal group named "everything", so there has to be a
@@ -1369,8 +1374,6 @@ public:
     if (unknownDiag)
       PP.Diag(StringLoc, diag::warn_pragma_diagnostic_unknown_warning)
         << WarningName;
-    else if (Callbacks)
-      Callbacks->PragmaDiagnostic(DiagLoc, Namespace, SV, WarningName);
   }
 };
 

@@ -513,6 +513,7 @@ public:
   std::unique_ptr<llvm::Timer> RulesetAnalysisFileCheckTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisFileChangeTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisMaterializationTimer;
+  std::unique_ptr<llvm::Timer> RulesetAnalysisPragmaMaterializationTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisExecuteTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisScheduleTimer;
   std::unique_ptr<llvm::Timer> RulesetAnalysisWaitTimer;
@@ -556,6 +557,11 @@ public:
             "ruleset-analysis-materialize",
             "Materialize loaded rules into effective rules during top-level "
             "AST traversal",
+            *RulesetTimerGroup)),
+        RulesetAnalysisPragmaMaterializationTimer(std::make_unique<llvm::Timer>(
+            "ruleset-analysis-pragma-materialize",
+            "Materialize loaded rules into effective rules during diagnostic "
+            "pragmas",
             *RulesetTimerGroup)),
         RulesetAnalysisExecuteTimer(std::make_unique<llvm::Timer>(
             "ruleset-analysis-execute",
@@ -1090,6 +1096,127 @@ private:
   }
 
 public:
+  void pragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
+                        diag::Severity mapping, StringRef Str) {
+    if (!Str.contains('/')) {
+      // Can't be a ruleset.
+      return;
+    }
+
+    auto FileID = SrcMgr.getFileID(SrcMgr.getFileLoc(Loc));
+    auto FileEntry = SrcMgr.getFileEntryRefForID(FileID);
+    if (!FileEntry) {
+      return;
+    }
+    auto DirState = this->Dirs.find(FileEntry->getDir());
+    if (DirState == this->Dirs.end()) {
+      return;
+    }
+
+    if (!DirState->second.Materialized) {
+      RULESET_TIME_REGION_BEFORE_ANALYSIS(
+          this->CI, MaterializationTimer, this->Timing,
+          RulesetAnalysisPragmaMaterializationTimer);
+      this->materializeDirectoryState(DirState->second, CI.getDiagnostics());
+    }
+
+    // @note: Materializing is all we need to do here, since that will create
+    // diagnostic IDs as a side effect of materialization.
+  }
+
+  void lexedFileChanged(FileID FID, PPCallbacks::LexedFileChangeReason Reason,
+                        SrcMgr::CharacteristicKind FileType, FileID PrevFID,
+                        SourceLocation Loc) {
+    SourceManager &SrcMgr = CI.getSourceManager();
+    OptionalFileEntryRef OptionalFileEntryRef =
+        SrcMgr.getFileEntryRefForID(FID);
+    if (!OptionalFileEntryRef.has_value()) {
+      // If there's no file entry for the new file, we don't process it.
+      return;
+    }
+
+    DirectoryEntryRef ContainingDirectory = OptionalFileEntryRef->getDir();
+    if (!this->Dirs.contains(ContainingDirectory)) {
+      RULESET_TIME_REGION_BEFORE_ANALYSIS(this->CI, Timer, this->getTiming(),
+                                          RulesetLoadClangRulesTimer);
+
+      // This leaf directory hasn't been seen before. We need to make an
+      // absolute path with '.' entries removed so that we can start
+      // traversing up the directory tree.
+      llvm::SmallString<256> LeafAbsolutePath(ContainingDirectory.getName());
+      CI.getFileManager().makeAbsolutePath(LeafAbsolutePath);
+      llvm::sys::path::remove_dots(LeafAbsolutePath, true);
+
+      // Track our current absolute path as we move upwards from the leaf.
+      llvm::StringRef CurrentAbsolutePath = LeafAbsolutePath;
+
+      // Starting at the current directory, search upwards for .clang-rules
+      // files.
+      while (!this->Dirs.contains(ContainingDirectory)) {
+        // Convert to an absolute path, since we might need to traverse up out
+        // of the working directory to find our .clangrules files.
+        // Go check this directory for a .clangrules file.
+        llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
+        llvm::sys::path::append(ClangRulesPath, ".clang-rules");
+        llvm::Expected<FileEntryRef> ClangRulesFile =
+            CI.getFileManager().getFileRef(ClangRulesPath, true, true);
+        if (ClangRulesFile) {
+          // We got a .clangrules file in this directory; load it into the
+          // Clang source manager so we can report diagnostics etc.
+          clang::FileID ClangRulesFileID =
+              CI.getSourceManager().getOrCreateFileID(
+                  ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
+          this->Dirs[ContainingDirectory].ActualOnDiskConfigs =
+              this->loadClangRulesFromPreprocessor(ClangRulesFileID);
+
+          // Add the .clang-rules to the dependencies so that external tools
+          // such as UBT know to build again when the rules file changes.
+          //
+          // @note: It's impossible for us to notify external tools of paths
+          // that *might* influence compilation if a new .clang-rules file is
+          // added to the folder hierarchy, since UBT assumes all dependencies
+          // are files that exist (so we can't even emit the directory whose
+          // last modified time would change when a file is added or deleted).
+          CI.getDependencyOutputOpts().ExtraDeps.push_back(
+              std::pair<std::string, ExtraDepKind>(
+                  ClangRulesPath, ExtraDepKind::EDK_DepFileEntry));
+        } else {
+          // We did not get a .clangrules file in this directory; cache that
+          // it is empty.
+          consumeError(ClangRulesFile.takeError());
+          this->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
+        }
+        // Modify CurrentAbsolutePath so that it contains the next parent path
+        // to evaluate.
+        RULESET_TRACE_CONFIG("Computed parent directory of '"
+                             << CurrentAbsolutePath);
+        CurrentAbsolutePath = llvm::sys::path::parent_path(CurrentAbsolutePath);
+        RULESET_TRACE_CONFIG_NO_PREFIX("' as '" << CurrentAbsolutePath
+                                                << "'\n");
+        if (CurrentAbsolutePath.empty() ||
+            (llvm::sys::path::is_style_windows(
+                 llvm::sys::path::Style::native) &&
+             CurrentAbsolutePath.ends_with(":"))) {
+          // No further parent directories.
+          break;
+        } else {
+          llvm::Expected<DirectoryEntryRef> OptionalParentDirectory =
+              CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
+          if (!OptionalParentDirectory) {
+            // Can't get parent directory.
+            break;
+          } else {
+            // Loop again with the new parent directory.
+            this->Dirs[ContainingDirectory].ParentDirectory =
+                OptionalParentDirectory.get();
+            ContainingDirectory = OptionalParentDirectory.get();
+          }
+        }
+      }
+    }
+  }
+
+private:
   std::unique_ptr<std::vector<config::ClangRules>>
   loadClangRulesFromPreprocessor(clang::FileID &FileID) {
     // Set up our YAML parser.
@@ -1255,7 +1382,6 @@ public:
     return LoadedDocuments;
   }
 
-private:
   void
   applyRulesetToEffectiveRules(bool &StillValid,
                                llvm::DenseSet<llvm::StringRef> &VisitedRulesets,
@@ -1416,6 +1542,17 @@ private:
         return;
       }
 
+      // If we have an effective configuration, iterate through all of the rules
+      // and generate diagnostic IDs so that code can use pragmas to control
+      // them.
+      for (const auto &EffectiveRule : EffectiveConfig->EffectiveRules) {
+        this->CI.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+            convertDiagnosticLevel(EffectiveRule.second.Severity),
+            (EffectiveRule.second.Rule->ErrorMessage + " [-W" +
+             EffectiveRule.second.Rule->Name + "]"),
+            EffectiveRule.second.Rule->Name);
+      }
+
       // Otherwise, this is the effective config for this directory.
       this->CreatedEffectiveConfigs.push_back(EffectiveConfig);
       DirState.Materialized = true;
@@ -1508,9 +1645,12 @@ private:
           clang::DiagnosticIDs::Level DiagnosticLevel =
               convertDiagnosticLevel(this->EffectiveRule.Severity);
           auto CallsiteDiagID =
-              this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
-                  DiagnosticLevel, this->EffectiveRule.Rule->ErrorMessage);
-          this->AST.getDiagnostics().Report(CallsiteLoc, CallsiteDiagID);
+              this->AST.getDiagnostics().getDiagnosticIDs()->getExistingCustomDiagID(
+                      this->EffectiveRule.Rule->Name, DiagnosticLevel);
+          assert(
+              CallsiteDiagID
+                  .has_value() /* expected diagnostics to have been created */);
+          this->AST.getDiagnostics().Report(CallsiteLoc, CallsiteDiagID.value());
         }
 
         // Report any additional hints if they're present.
@@ -1806,94 +1946,13 @@ public:
   virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
                                 SrcMgr::CharacteristicKind FileType,
                                 FileID PrevFID, SourceLocation Loc) override {
-    SourceManager &SrcMgr = CI.getSourceManager();
-    OptionalFileEntryRef OptionalFileEntryRef =
-        SrcMgr.getFileEntryRefForID(FID);
-    if (!OptionalFileEntryRef.has_value()) {
-      // If there's no file entry for the new file, we don't process it.
-      return;
-    }
+    State->lexedFileChanged(FID, Reason, FileType, PrevFID, Loc);
+  }
 
-    DirectoryEntryRef ContainingDirectory = OptionalFileEntryRef->getDir();
-    if (!State->Dirs.contains(ContainingDirectory)) {
-      RULESET_TIME_REGION_BEFORE_ANALYSIS(this->CI, Timer,
-                                          this->State->getTiming(),
-                                          RulesetLoadClangRulesTimer);
-
-      // This leaf directory hasn't been seen before. We need to make an
-      // absolute path with '.' entries removed so that we can start
-      // traversing up the directory tree.
-      llvm::SmallString<256> LeafAbsolutePath(ContainingDirectory.getName());
-      CI.getFileManager().makeAbsolutePath(LeafAbsolutePath);
-      llvm::sys::path::remove_dots(LeafAbsolutePath, true);
-
-      // Track our current absolute path as we move upwards from the leaf.
-      llvm::StringRef CurrentAbsolutePath = LeafAbsolutePath;
-
-      // Starting at the current directory, search upwards for .clang-rules
-      // files.
-      while (!State->Dirs.contains(ContainingDirectory)) {
-        // Convert to an absolute path, since we might need to traverse up out
-        // of the working directory to find our .clangrules files.
-        // Go check this directory for a .clangrules file.
-        llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
-        llvm::sys::path::append(ClangRulesPath, ".clang-rules");
-        llvm::Expected<FileEntryRef> ClangRulesFile =
-            CI.getFileManager().getFileRef(ClangRulesPath, true, true);
-        if (ClangRulesFile) {
-          // We got a .clangrules file in this directory; load it into the
-          // Clang source manager so we can report diagnostics etc.
-          clang::FileID ClangRulesFileID =
-              CI.getSourceManager().getOrCreateFileID(
-                  ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
-          State->Dirs[ContainingDirectory].ActualOnDiskConfigs =
-              State->loadClangRulesFromPreprocessor(ClangRulesFileID);
-
-          // Add the .clang-rules to the dependencies so that external tools
-          // such as UBT know to build again when the rules file changes.
-          //
-          // @note: It's impossible for us to notify external tools of paths
-          // that *might* influence compilation if a new .clang-rules file is
-          // added to the folder hierarchy, since UBT assumes all dependencies
-          // are files that exist (so we can't even emit the directory whose
-          // last modified time would change when a file is added or deleted).
-          CI.getDependencyOutputOpts().ExtraDeps.push_back(
-              std::pair<std::string, ExtraDepKind>(
-                  ClangRulesPath, ExtraDepKind::EDK_DepFileEntry));
-        } else {
-          // We did not get a .clangrules file in this directory; cache that
-          // it is empty.
-          consumeError(ClangRulesFile.takeError());
-          State->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
-        }
-        // Modify CurrentAbsolutePath so that it contains the next parent path
-        // to evaluate.
-        RULESET_TRACE_CONFIG("Computed parent directory of '"
-                             << CurrentAbsolutePath);
-        CurrentAbsolutePath = llvm::sys::path::parent_path(CurrentAbsolutePath);
-        RULESET_TRACE_CONFIG_NO_PREFIX("' as '" << CurrentAbsolutePath
-                                                << "'\n");
-        if (CurrentAbsolutePath.empty() ||
-            (llvm::sys::path::is_style_windows(
-                 llvm::sys::path::Style::native) &&
-             CurrentAbsolutePath.ends_with(":"))) {
-          // No further parent directories.
-          break;
-        } else {
-          llvm::Expected<DirectoryEntryRef> OptionalParentDirectory =
-              CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
-          if (!OptionalParentDirectory) {
-            // Can't get parent directory.
-            break;
-          } else {
-            // Loop again with the new parent directory.
-            State->Dirs[ContainingDirectory].ParentDirectory =
-                OptionalParentDirectory.get();
-            ContainingDirectory = OptionalParentDirectory.get();
-          }
-        }
-      }
-    }
+  virtual void PragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
+                                diag::Severity mapping,
+                                StringRef Str) override {
+    State->pragmaDiagnostic(Loc, Namespace, mapping, Str);
   }
 
   virtual void InclusionDirective(SourceLocation HashLoc,

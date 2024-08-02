@@ -311,6 +311,10 @@ public:
     }());
   }
 
+  // @unreal: BEGIN
+  #include "DiagnosticIDs.Unreal.h"
+  // @unreal: END
+
   //===--------------------------------------------------------------------===//
   // Diagnostic classification and reporting interfaces.
   //

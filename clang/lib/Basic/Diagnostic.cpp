@@ -404,7 +404,10 @@ bool DiagnosticsEngine::setSeverityForGroup(diag::Flavor Flavor,
   // Get the diagnostics in this group.
   SmallVector<diag::kind, 256> GroupDiags;
   if (Diags->getDiagnosticsInGroup(Flavor, Group, GroupDiags))
-    return true;
+    // @unreal: BEGIN
+    if (Diags->getExistingCustomDiagIDs(Group, GroupDiags))
+      // @unreal: END
+      return true;
 
   Diags->setGroupSeverity(Group, Map);
 
