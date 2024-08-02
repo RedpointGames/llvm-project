@@ -200,6 +200,10 @@ public:
   // writing, nearly all callers of this function were invalid.
   unsigned getCustomDiagID(Level L, StringRef FormatString);
 
+  // @unreal: BEGIN
+  #include "DiagnosticIDs.Unreal.h"
+  // @unreal: END
+
   //===--------------------------------------------------------------------===//
   // Diagnostic classification and reporting interfaces.
   //

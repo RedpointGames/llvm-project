@@ -353,8 +353,10 @@ void DiagnosticsEngine::PushDiagStatePoint(DiagState *State,
 
 void DiagnosticsEngine::setSeverity(diag::kind Diag, diag::Severity Map,
                                     SourceLocation L) {
-  assert(Diag < diag::DIAG_UPPER_LIMIT &&
-         "Can only map builtin diagnostics");
+  // @unreal: BEGIN
+  // assert(Diag < diag::DIAG_UPPER_LIMIT &&
+  //        "Can only map builtin diagnostics");
+  // @unreal: END
   assert((Diags->isBuiltinWarningOrExtension(Diag) ||
           (Map == diag::Severity::Fatal || Map == diag::Severity::Error)) &&
          "Cannot map errors into warnings!");
@@ -404,7 +406,10 @@ bool DiagnosticsEngine::setSeverityForGroup(diag::Flavor Flavor,
   // Get the diagnostics in this group.
   SmallVector<diag::kind, 256> GroupDiags;
   if (Diags->getDiagnosticsInGroup(Flavor, Group, GroupDiags))
-    return true;
+    // @unreal: BEGIN
+    if (Diags->getExistingCustomDiagIDs(Group, GroupDiags))
+      // @unreal: END
+      return true;
 
   // Set the mapping.
   for (diag::kind Diag : GroupDiags)
