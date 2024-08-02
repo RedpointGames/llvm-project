@@ -348,7 +348,7 @@ static unsigned getBuiltinDiagClass(unsigned DiagID) {
 // @unreal: BEGIN
 // @note: We've replaced custom diagnostic information entirely
 // so we can support silencing ruleset rules via pragmas.
-#include "DiagnosticIDs.Unreal.cpp"
+#include "DiagnosticIDs.UnrealImpl.h"
 // @unreal: END
 
 //===----------------------------------------------------------------------===//
