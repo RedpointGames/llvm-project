@@ -19,6 +19,9 @@
 #include "llvm/Support/ErrorHandling.h"
 #include <map>
 #include <optional>
+// @unreal: BEGIN
+#include "llvm/Support/xxhash.h"
+// @unreal: END
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -183,7 +186,7 @@ const StaticDiagInfoRec StaticDiagInfo[] = {
       SHOWINSYSHEADER,                                                         \
       SHOWINSYSMACRO,                                                          \
       GROUP,                                                                   \
-	    DEFERRABLE,                                                              \
+        DEFERRABLE,                                                              \
       STR_SIZE(DESC, uint16_t)},
 #include "clang/Basic/DiagnosticCommonKinds.inc"
 #include "clang/Basic/DiagnosticDriverKinds.inc"
@@ -342,48 +345,11 @@ static unsigned getBuiltinDiagClass(unsigned DiagID) {
 // Custom Diagnostic information
 //===----------------------------------------------------------------------===//
 
-namespace clang {
-  namespace diag {
-    class CustomDiagInfo {
-      typedef std::pair<DiagnosticIDs::Level, std::string> DiagDesc;
-      std::vector<DiagDesc> DiagInfo;
-      std::map<DiagDesc, unsigned> DiagIDs;
-    public:
-
-      /// getDescription - Return the description of the specified custom
-      /// diagnostic.
-      StringRef getDescription(unsigned DiagID) const {
-        assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
-               "Invalid diagnostic ID");
-        return DiagInfo[DiagID-DIAG_UPPER_LIMIT].second;
-      }
-
-      /// getLevel - Return the level of the specified custom diagnostic.
-      DiagnosticIDs::Level getLevel(unsigned DiagID) const {
-        assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
-               "Invalid diagnostic ID");
-        return DiagInfo[DiagID-DIAG_UPPER_LIMIT].first;
-      }
-
-      unsigned getOrCreateDiagID(DiagnosticIDs::Level L, StringRef Message,
-                                 DiagnosticIDs &Diags) {
-        DiagDesc D(L, std::string(Message));
-        // Check to see if it already exists.
-        std::map<DiagDesc, unsigned>::iterator I = DiagIDs.lower_bound(D);
-        if (I != DiagIDs.end() && I->first == D)
-          return I->second;
-
-        // If not, assign a new ID.
-        unsigned ID = DiagInfo.size()+DIAG_UPPER_LIMIT;
-        DiagIDs.insert(std::make_pair(D, ID));
-        DiagInfo.push_back(D);
-        return ID;
-      }
-    };
-
-  } // end diag namespace
-} // end clang namespace
-
+// @unreal: BEGIN
+// @note: We've replaced custom diagnostic information entirely
+// so we can support silencing ruleset rules via pragmas.
+#include "DiagnosticIDs.Unreal.cpp"
+// @unreal: END
 
 //===----------------------------------------------------------------------===//
 // Common Diagnostic implementation
@@ -479,6 +445,12 @@ DiagnosticIDs::getDiagnosticLevel(unsigned DiagID, SourceLocation Loc,
   // Handle custom diagnostics, which cannot be mapped.
   if (DiagID >= diag::DIAG_UPPER_LIMIT) {
     assert(CustomDiagInfo && "Invalid CustomDiagInfo");
+    // @unreal: BEGIN
+    auto CustomSeverity = getDiagnosticSeverity(DiagID, Loc, Diag);
+    if (CustomSeverity != diag::Severity::Fatal) {
+      return toLevel(CustomSeverity);
+    }
+    // @unreal: END
     return CustomDiagInfo->getLevel(DiagID);
   }
 
