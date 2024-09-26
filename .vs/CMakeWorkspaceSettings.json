@@ -1,0 +1,150 @@
+{
+  "enableCMake": true,
+  "sourceDirectory": "llvm",
+  "configurations": [
+    {
+      "name": "x64-Debug",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "inheritEnvironments": [ "clang_cl_x64_x64" ],
+      "buildRoot": "${projectDir}\\..\\build\\win64\\debug",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "CMAKE_C_COMPILER_LAUNCHER",
+          "value": "${projectDir}\\..\\.redpoint\\uet-cmake.exe"
+        },
+        {
+          "name": "CMAKE_CXX_COMPILER_LAUNCHER",
+          "value": "${projectDir}\\..\\.redpoint\\uet-cmake.exe"
+        },
+        {
+          "name": "CMAKE_C_COMPILER",
+          "value": "C:\\Program Files\\LLVM\\bin\\clang-cl.exe"
+        },
+        {
+          "name": "CMAKE_CXX_COMPILER",
+          "value": "C:\\Program Files\\LLVM\\bin\\clang-cl.exe"
+        },
+        {
+          "name": "CMAKE_ASM_COMPILER",
+          "value": "C:\\Program Files\\LLVM\\bin\\clang-cl.exe"
+        },
+        {
+          "name": "CMAKE_RC_COMPILER",
+          "value": "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64/rc.exe"
+        },
+        {
+          "name": "CMAKE_MT",
+          "value": "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64/rc.exe"
+        },
+        {
+          "name": "LLVM_INSTALL_TOOLCHAIN_ONLY:BOOL",
+          "value": "TRUE"
+        },
+        {
+          "name": "LLVM_INCLUDE_BENCHMARKS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_INCLUDE_DOCS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_INCLUDE_EXAMPLES:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_INCLUDE_TESTS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "CLANG_INCLUDE_TESTS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "CLANG_INCLUDE_DOCS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_ENABLE_DIA_SDK:BOOL",
+          "value": "FALSE"
+        }
+      ]
+    },
+    {
+      "name": "x64-Release",
+      "generator": "Ninja",
+      "configurationType": "Release",
+      "inheritEnvironments": [ "clang_cl_x64_x64" ],
+      "buildRoot": "${projectDir}\\..\\build\\win64\\release",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "CMAKE_C_COMPILER_LAUNCHER",
+          "value": "${projectDir}\\..\\.redpoint\\uet-cmake.exe"
+        },
+        {
+          "name": "CMAKE_CXX_COMPILER_LAUNCHER",
+          "value": "${projectDir}\\..\\.redpoint\\uet-cmake.exe"
+        },
+        {
+          "name": "CMAKE_C_COMPILER",
+          "value": "C:\\Program Files\\LLVM\\bin\\clang-cl.exe"
+        },
+        {
+          "name": "CMAKE_CXX_COMPILER",
+          "value": "C:\\Program Files\\LLVM\\bin\\clang-cl.exe"
+        },
+        {
+          "name": "CMAKE_ASM_COMPILER",
+          "value": "C:\\Program Files\\LLVM\\bin\\clang-cl.exe"
+        },
+        {
+          "name": "CMAKE_RC_COMPILER",
+          "value": "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64/rc.exe"
+        },
+        {
+          "name": "CMAKE_MT",
+          "value": "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64/rc.exe"
+        },
+        {
+          "name": "LLVM_INSTALL_TOOLCHAIN_ONLY:BOOL",
+          "value": "TRUE"
+        },
+        {
+          "name": "LLVM_INCLUDE_BENCHMARKS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_INCLUDE_DOCS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_INCLUDE_EXAMPLES:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_INCLUDE_TESTS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "CLANG_INCLUDE_TESTS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "CLANG_INCLUDE_DOCS:BOOL",
+          "value": "FALSE"
+        },
+        {
+          "name": "LLVM_ENABLE_DIA_SDK:BOOL",
+          "value": "FALSE"
+        }
+      ]
+    }
+  ]
+}
