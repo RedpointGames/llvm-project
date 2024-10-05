@@ -66,6 +66,7 @@ try {
             -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE `
             -DCMAKE_BUILD_TYPE=Debug `
             -DCMAKE_CFG_INTDIR=Debug `
+            "-DCMAKE_INSTALL_PREFIX=C:\Program Files\LLVM" `
             $LauncherFlags `
             -Hllvm `
             "-B$BuildPathDebug"
@@ -91,6 +92,7 @@ try {
             -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_CFG_INTDIR=Release `
+            "-DCMAKE_INSTALL_PREFIX=C:\Program Files\LLVM" `
             $LauncherFlags `
             -Hllvm `
             "-B$BuildPathRelease"
