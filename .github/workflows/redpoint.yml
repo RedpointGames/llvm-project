@@ -136,7 +136,7 @@ jobs:
     - llvm-redpoint-linux
     - llvm-redpoint-windows
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request'
     steps:
     - name: Publish Release
       uses: ncipollo/release-action@v1
