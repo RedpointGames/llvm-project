@@ -53,13 +53,14 @@ jobs:
     - name: "Prepare for Upload"
       run: |
         mv /opt/llvm-redpoint llvm-linux-${{ needs.get-branch-name.outputs.branch }}
+        zip -r llvm-linux-${{ needs.get-branch-name.outputs.branch }}.zip llvm-linux-${{ needs.get-branch-name.outputs.branch }}
     - name: "Upload LLVM"
       uses: actions/upload-artifact@v4
       with:
         name: llvm-linux-${{ needs.get-branch-name.outputs.branch }}
         if-no-files-found: error
         path: |
-          llvm-linux-${{ needs.get-branch-name.outputs.branch }}
+          llvm-linux-${{ needs.get-branch-name.outputs.branch }}.zip
 
   llvm-redpoint-windows:
     name: "Build for Windows"
@@ -113,13 +114,14 @@ jobs:
       shell: pwsh
       run: |
         Move-Item -Force "C:\Program Files\LLVM" llvm-win64-${{ needs.get-branch-name.outputs.branch }}
+        Compress-Archive -Force -Path "llvm-win64-${{ needs.get-branch-name.outputs.branch }}" -DestinationPath "llvm-win64-${{ needs.get-branch-name.outputs.branch }}.zip"
     - name: "Upload LLVM ZIP"
       uses: actions/upload-artifact@v4
       with:
         name: llvm-win64-${{ needs.get-branch-name.outputs.branch }}
         if-no-files-found: error
         path: |
-          llvm-win64-${{ needs.get-branch-name.outputs.branch }}
+          llvm-win64-${{ needs.get-branch-name.outputs.branch }}.zip
     - name: "Upload LLVM MSI"
       uses: actions/upload-artifact@v4
       with:
@@ -127,3 +129,22 @@ jobs:
         if-no-files-found: error
         path: |
           .github/workflows/llvm.msi
+  
+  create-release:
+    name: "Create Release"
+    needs:
+    - llvm-redpoint-linux
+    - llvm-redpoint-windows
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Publish Release
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "llvm-linux-${{ needs.get-branch-name.outputs.branch }},llvm-win64-${{ needs.get-branch-name.outputs.branch }}"
+        artifactErrorsFailBuild: true
+        artifactContentType: "application/zip"
+        tag: "${{ needs.get-branch-name.outputs.branch }}-${{ env.GITHUB_SHA }}"
+        commit: ${{ env.GITHUB_SHA }}
+        body: This release for Clang ${{ needs.get-branch-name.outputs.branch }} was automatically created from a successful build.
+        generateReleaseNotes: true
