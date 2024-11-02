@@ -142,10 +142,22 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     steps:
+    - name: Download Linux
+      uses: actions/download-artifact@v4
+      with:
+        name: llvm-linux-${{ needs.get-branch-name.outputs.branch }}
+        path: ""
+        merge-multiple: true
+    - name: Download Windows
+      uses: actions/download-artifact@v4
+      with:
+        name: llvm-win64-${{ needs.get-branch-name.outputs.branch }}
+        path: ""
+        merge-multiple: true
     - name: Publish Release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "llvm-linux-${{ needs.get-branch-name.outputs.branch }},llvm-win64-${{ needs.get-branch-name.outputs.branch }}"
+        artifacts: "llvm-linux-${{ needs.get-branch-name.outputs.branch }}.zip,llvm-win64-${{ needs.get-branch-name.outputs.branch }}.zip"
         artifactErrorsFailBuild: true
         artifactContentType: "application/zip"
         tag: "${{ needs.get-branch-name.outputs.targettag }}"
