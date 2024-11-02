@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       branch: ${{ steps.extract_branch.outputs.branch }}
+      targettag: ${{ steps.extract_branch.outputs.targettag }}
     steps:
     - name: Checkout
       uses: actions/checkout@v4
