@@ -19,7 +19,9 @@ jobs:
     - id: extract_branch
       name: Extract branch name
       shell: bash
-      run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/redpoint/}}" >> $GITHUB_OUTPUT
+      run: |
+        echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/redpoint/}}" >> $GITHUB_OUTPUT
+        echo "targettag=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/redpoint/}}-${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
 
   llvm-redpoint-linux:
     name: "Build for Linux"
@@ -133,6 +135,7 @@ jobs:
   create-release:
     name: "Create Release"
     needs:
+    - get-branch-name
     - llvm-redpoint-linux
     - llvm-redpoint-windows
     runs-on: ubuntu-latest
@@ -144,7 +147,7 @@ jobs:
         artifacts: "llvm-linux-${{ needs.get-branch-name.outputs.branch }},llvm-win64-${{ needs.get-branch-name.outputs.branch }}"
         artifactErrorsFailBuild: true
         artifactContentType: "application/zip"
-        tag: "${{ needs.get-branch-name.outputs.branch }}-${{ env.GITHUB_SHA }}"
+        tag: "${{ needs.get-branch-name.outputs.targettag }}"
         commit: ${{ env.GITHUB_SHA }}
         body: This release for Clang ${{ needs.get-branch-name.outputs.branch }} was automatically created from a successful build.
         generateReleaseNotes: true
