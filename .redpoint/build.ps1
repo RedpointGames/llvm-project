@@ -1,4 +1,4 @@
-param([switch] $Generate, [switch] $Install, [switch] $InstallOnly, [switch] $Debug)
+param([switch] $Generate, [switch] $Install, [switch] $InstallOnly, [switch] $Debug, [string] $UbaEngine)
 
 $global:ErrorActionPreference = 'Stop'
 
@@ -15,19 +15,31 @@ function Invoke-CmdScript {
   }
 }
 
-$UbaViaUet = (Test-Path "C:\ProgramData\UET\Current\uet.exe")
-
 Push-Location "$PSScriptRoot\.."
 try {
     # Set the build path.
     $BuildPathDebug = "build\win64\debug"
     $BuildPathRelease = "build\win64\release"
-    $LauncherFlags = @()
-    $UbaCores = @()
-    if ($UbaViaUet) {
-        $LauncherFlags += "-DCMAKE_C_COMPILER_LAUNCHER=$PSScriptRoot\uet-cmake.bat"
-        $LauncherFlags += "-DCMAKE_CXX_COMPILER_LAUNCHER=$PSScriptRoot\uet-cmake.bat"
-        $UbaCores += "-j256"
+    $CMakeCommand = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+    $CMakeCommandArguments = @(
+    )
+    $CMakeCommandGenerateArguments = @(
+        "-G",
+        "Ninja"
+    )
+    if ($null -ne $UbaEngine) {
+        $CMakeCommand = "uet";
+        if (Test-Path "C:\Work\uet\UET\uet\bin\Debug\net9.0\win-x64\uet.exe") {
+            $CMakeCommand = "C:\Work\uet\UET\uet\bin\Debug\net9.0\win-x64\uet.exe"
+        }
+        $CMakeCommandArguments = @(
+            "cmake",
+            "-e",
+            $UbaEngine,
+            "--"
+        )
+        $CMakeCommandGenerateArguments = @(
+        )
     }
 
     # Create the session ID for this build.
@@ -46,9 +58,8 @@ try {
         if (!(Test-Path $BuildPathRelease)) {
             New-Item -ItemType Directory $BuildPathRelease | Out-Null
         }
-            #-T host=x64 -A x64 `
-        & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' `
-            -G "Ninja" `
+        
+        & $CMakeCommand $CMakeCommandArguments $CMakeCommandGenerateArguments `
             "-DCMAKE_MAKE_PROGRAM=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe" `
             "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" `
             "-DCMAKE_C_COMPILER=C:\Program Files\LLVM\bin\clang-cl.exe" `
@@ -73,8 +84,7 @@ try {
         if ($LastExitCode -ne 0) {
             exit $LastExitCode
         }
-        & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' `
-            -G "Ninja" `
+        & $CMakeCommand $CMakeCommandArguments $CMakeCommandGenerateArguments `
             "-DCMAKE_MAKE_PROGRAM=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe" `
             "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" `
             "-DCMAKE_C_COMPILER=C:\Program Files\LLVM\bin\clang-cl.exe" `
@@ -111,15 +121,9 @@ try {
 
     # Build if not only installing.
     if (!$InstallOnly) {
-        # Start UBA worker if needed.
-        if ($UbaViaUet) {
-            Start-Process -NoNewWindow -FilePath "C:\Work\uet\UET\uet\bin\Debug\net8.0\win-x64\uet.exe" -ArgumentList @("internal", "cmake-uba-server")
-        }
-
-        & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' `
+        & $CMakeCommand $CMakeCommandArguments `
             --build $BuildPath `
-            --config $BuildConfiguration `
-            $UbaCores
+            --config $BuildConfiguration
         if ($LastExitCode -ne 0) {
             exit $LastExitCode
         }
