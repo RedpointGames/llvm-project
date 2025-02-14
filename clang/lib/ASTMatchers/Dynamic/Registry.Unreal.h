@@ -20,4 +20,6 @@ REGISTER_MATCHER(hasRedundantNamespacing);
 REGISTER_MATCHER(isExpensiveToCopy);
 REGISTER_MATCHER(isUnrealExported);
 REGISTER_MATCHER(isNamespaceSpecifierRootedToGlobal);
+REGISTER_MATCHER(isAggregate);
+REGISTER_MATCHER(isFullyDesignated);
 // @unreal: END
