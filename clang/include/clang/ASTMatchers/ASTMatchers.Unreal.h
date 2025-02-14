@@ -532,4 +532,24 @@ AST_MATCHER(NestedNameSpecifier, isNamespaceSpecifierRootedToGlobal) {
   return false;
 }
 
+/// Matches if a CXX record decl is an aggregate type, which is a class with no user-declared 
+/// constructors, no private or protected non-static data members, no base classes, and no virtual
+/// functions (C++ [dcl.init.aggr]p1).
+AST_MATCHER(CXXRecordDecl, isAggregate) {
+  return Node.hasDefinition() && Node.isAggregate();
+}
+
+/// Matches if a init list expr is full designated (contains no initialization elements that aren't
+/// designated.
+AST_MATCHER(InitListExpr, isFullyDesignated) {
+  if (const InitListExpr *SyntacticForm =
+          Node.isSyntacticForm() ? &Node : Node.getSyntacticForm()) {
+    unsigned NumberOfDesignated = llvm::count_if(*SyntacticForm, [](auto *InitExpr) {
+      return isa<DesignatedInitExpr>(InitExpr);
+    });
+    return NumberOfDesignated == SyntacticForm->getNumInits();
+  }
+  return true;
+}
+
 // @unreal: END
