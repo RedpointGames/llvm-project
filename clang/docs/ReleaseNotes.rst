@@ -1273,6 +1273,10 @@ Windows Support
 
 - Clang now passes relevant LTO options to the linker (LLD) in MinGW mode.
 
+- Clang now defines ``_CRT_USE_BUILTIN_OFFSETOF`` macro in MSVC-compatible mode,
+  which makes ``offsetof`` provided by Microsoft's ``<stddef.h>`` to be defined
+  correctly. (#GH59689)
+
 LoongArch Support
 ^^^^^^^^^^^^^^^^^
 - Added builtins support for all LSX (128-bits SIMD) and LASX (256-bits SIMD)
