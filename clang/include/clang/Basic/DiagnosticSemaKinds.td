@@ -3668,12 +3668,12 @@ def err_attribute_patchable_function_entry_invalid_section
 
 // @unreal: BEGIN
 def warn_unreal_data_discarded_on_new_specifier : Warning<
-  "previous Unreal Engine data discarded on new specifier">,
+  "previous unreal engine data discarded on new specifier">,
   InGroup<UnrealEngine>;
 def note_unreal_data_previous_location : Note<
   "previously discarded metadata was located here">;
 def err_unreal_annotation_found_in_unexpected_place : Error<
-  "Unreal Engine macro used in unexpected place">;
+  "unreal engine macro used in unexpected place">;
 def warn_iwyu_remove_unused_header : Warning<
   "#include header is completely unused and can be removed">, 
   InGroup<IncludeWhatYouUse>;
