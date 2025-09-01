@@ -154,10 +154,14 @@ jobs:
         name: llvm-win64-${{ needs.get-branch-name.outputs.branch }}
         path: ""
         merge-multiple: true
+    - name: Create Info File
+      run: |
+        echo "linux=llvm-linux-${{ needs.get-branch-name.outputs.branch }}.zip" > info
+        echo "win64=llvm-win64-${{ needs.get-branch-name.outputs.branch }}.zip" >> info
     - name: Publish Release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "llvm-linux-${{ needs.get-branch-name.outputs.branch }}.zip,llvm-win64-${{ needs.get-branch-name.outputs.branch }}.zip"
+        artifacts: "llvm-linux-${{ needs.get-branch-name.outputs.branch }}.zip,llvm-win64-${{ needs.get-branch-name.outputs.branch }}.zip,info"
         artifactErrorsFailBuild: true
         artifactContentType: "application/zip"
         tag: "${{ needs.get-branch-name.outputs.targettag }}"
