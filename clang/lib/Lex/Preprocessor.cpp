@@ -171,7 +171,7 @@ Preprocessor::Preprocessor(const PreprocessorOptions &PPOpts,
 
   // @unreal: BEGIN
   // Always register Unreal Engine PP callbacks.
-  this->addPPCallbacks(std::make_unique<UnrealEnginePPTagger>(*this, &SM));
+  this->addPPCallbacks(std::make_unique<UnrealEnginePPTagger>(*this));
   // @unreal: END
 }
 

@@ -1,56 +1,82 @@
+
 namespace clang {
 namespace diag {
-class CustomDiagInfoEntry {
-public:
-  DiagnosticIDs::Level Level;
-  std::string Name;
-  std::string Description;
-  unsigned DiagID;
-
-  CustomDiagInfoEntry() {}
-  CustomDiagInfoEntry(DiagnosticIDs::Level InLevel, std::string InName,
-                      std::string InDescription, unsigned InDiagID)
-      : Level(InLevel), Name(InName), Description(InDescription),
-        DiagID(InDiagID) {}
-};
-
+using CustomDiagDesc = DiagnosticIDs::CustomDiagDesc;
 class CustomDiagInfo {
-  std::vector<CustomDiagInfoEntry> DiagInfo;
-  llvm::StringMap<std::vector<CustomDiagInfoEntry>> DiagInfoByName;
+  std::vector<CustomDiagDesc> DiagInfo;
+  llvm::StringMap<std::vector<std::pair<CustomDiagDesc, unsigned>>> DiagInfoByName;
+  std::map<CustomDiagDesc, unsigned> DiagIDs;
+  std::map<diag::Group, std::vector<unsigned>> GroupToDiags;
 
 public:
-  /// getName - Return the name of the specified custom
-  /// diagnostic.
-  StringRef getName(unsigned DiagID) const {
-    assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
-           "Invalid diagnostic ID");
-    return DiagInfo[DiagID - DIAG_UPPER_LIMIT].Name;
-  }
-
   /// getDescription - Return the description of the specified custom
   /// diagnostic.
-  StringRef getDescription(unsigned DiagID) const {
+  const CustomDiagDesc &getDescription(unsigned DiagID) const {
     assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
            "Invalid diagnostic ID");
-    return DiagInfo[DiagID - DIAG_UPPER_LIMIT].Description;
+    return DiagInfo[DiagID - DIAG_UPPER_LIMIT];
   }
 
-  /// getLevel - Return the level of the specified custom diagnostic.
-  DiagnosticIDs::Level getLevel(unsigned DiagID) const {
-    assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
-           "Invalid diagnostic ID");
-    return DiagInfo[DiagID - DIAG_UPPER_LIMIT].Level;
+  unsigned getOrCreateDiagID(DiagnosticIDs::CustomDiagDesc D) {
+    // Check to see if it already exists.
+    std::map<CustomDiagDesc, unsigned>::iterator I = DiagIDs.lower_bound(D);
+    if (I != DiagIDs.end() && I->first == D)
+      return I->second;
+
+    std::string GeneratedName = std::to_string(llvm::xxHash64(D.GetDescription()));
+
+    // If not, assign a new ID.
+    unsigned ID = DiagInfo.size() + DIAG_UPPER_LIMIT;
+    DiagIDs.insert(std::make_pair(D, ID));
+    DiagInfo.push_back(D);
+    DiagInfoByName[GeneratedName].push_back(std::make_pair(D, ID));
+    if (auto Group = D.GetGroup())
+      GroupToDiags[*Group].emplace_back(ID);
+    return ID;
+  }
+
+  unsigned getOrCreateRedpointDiagID(diag::Severity Severity, StringRef Message, StringRef Name) {
+    // Check to see if it already exists.
+    auto It = this->DiagInfoByName.find(Name);
+    if (It != this->DiagInfoByName.end()) {
+      for (const auto &E : It->getValue()) {
+        if (E.first.GetDefaultSeverity() == Severity) {
+          return E.second;
+        }
+      }
+    }
+
+    // If not, assign a new ID.
+    unsigned ID = this->DiagInfo.size() + DIAG_UPPER_LIMIT;
+    auto Entry = CustomDiagDesc(
+      Severity, 
+      Message.str(), 
+      CLASS_WARNING, 
+      false, 
+      false, 
+      std::nullopt, 
+      Name.str());
+    this->DiagIDs.insert(std::make_pair(Entry, ID));
+    this->DiagInfo.push_back(Entry);
+    this->DiagInfoByName[Name].push_back(std::make_pair(Entry, ID));
+    return ID;
+  }
+
+  ArrayRef<unsigned> getDiagsInGroup(diag::Group G) const {
+    if (auto Diags = GroupToDiags.find(G); Diags != GroupToDiags.end())
+      return Diags->second;
+    return {};
   }
 
   std::optional<unsigned> tryGetDiagID(StringRef Name,
-                                       DiagnosticIDs::Level L) const {
+                                       diag::Severity L) const {
     auto It = this->DiagInfoByName.find(Name);
     if (It == this->DiagInfoByName.end()) {
       return std::optional<unsigned>();
     }
     for (const auto &E : It->getValue()) {
-      if (E.Level == L) {
-        return E.DiagID;
+      if (E.first.GetDefaultSeverity() == L) {
+        return E.second;
       }
     }
     return std::optional<unsigned>();
@@ -62,45 +88,25 @@ public:
       return false;
     }
     for (const auto &E : It->getValue()) {
-      Diags.push_back(E.DiagID);
+      Diags.push_back(E.second);
     }
     return true;
-  }
-
-  unsigned getOrCreateDiagID(DiagnosticIDs::Level L, StringRef Message,
-                             DiagnosticIDs &Diags, StringRef *Name = nullptr) {
-    // Check to see if it already exists.
-    StringRef NameResolved =
-        Name == nullptr ? std::to_string(llvm::xxHash64(Message)) : *Name;
-    auto It = this->DiagInfoByName.find(NameResolved);
-    if (It != this->DiagInfoByName.end()) {
-      for (const auto &E : It->getValue()) {
-        if (E.Level == L) {
-          return E.DiagID;
-        }
-      }
-    }
-
-    // If not, assign a new ID.
-    unsigned ID = this->DiagInfo.size() + DIAG_UPPER_LIMIT;
-    auto Entry = CustomDiagInfoEntry(L, NameResolved.str(), Message.str(), ID);
-    this->DiagInfo.push_back(Entry);
-    this->DiagInfoByName[NameResolved].push_back(Entry);
-    return ID;
   }
 };
 
 } // namespace diag
 } // namespace clang
 
-unsigned DiagnosticIDs::getCustomDiagID(Level L, StringRef FormatString,
-                                        StringRef Name) {
+unsigned DiagnosticIDs::getRedpointDiagID(
+    diag::Severity L, 
+    StringRef FormatString,
+    StringRef Name) {
   if (!CustomDiagInfo)
     CustomDiagInfo.reset(new diag::CustomDiagInfo());
-  return CustomDiagInfo->getOrCreateDiagID(L, FormatString, *this, &Name);
+  return CustomDiagInfo->getOrCreateRedpointDiagID(L, FormatString, Name);
 }
 
-bool DiagnosticIDs::getExistingCustomDiagIDs(
+bool DiagnosticIDs::getExistingRedpointDiagIDs(
     StringRef Name, SmallVectorImpl<diag::kind> &Diags) {
   if (!CustomDiagInfo) {
     CustomDiagInfo.reset(new diag::CustomDiagInfo());
@@ -108,8 +114,8 @@ bool DiagnosticIDs::getExistingCustomDiagIDs(
   return !CustomDiagInfo->tryGetDiagIDs(Name, Diags);
 }
 
-std::optional<unsigned> DiagnosticIDs::getExistingCustomDiagID(StringRef Name,
-                                                                Level L) {
+std::optional<unsigned> DiagnosticIDs::getExistingRedpointDiagID(StringRef Name,
+                                                                diag::Severity L) {
   if (!CustomDiagInfo) {
     CustomDiagInfo.reset(new diag::CustomDiagInfo());
   }

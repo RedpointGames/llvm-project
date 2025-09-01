@@ -354,9 +354,15 @@ void DiagnosticsEngine::PushDiagStatePoint(DiagState *State,
 
 void DiagnosticsEngine::setSeverity(diag::kind Diag, diag::Severity Map,
                                     SourceLocation L) {
+  // @unreal: BEGIN
+  if (Diag < diag::DIAG_UPPER_LIMIT) {
+  // @unreal: END
   assert((Diags->isWarningOrExtension(Diag) ||
           (Map == diag::Severity::Fatal || Map == diag::Severity::Error)) &&
          "Cannot map errors into warnings!");
+  // @unreal: BEGIN
+  }
+  // @unreal: END
   assert((L.isInvalid() || SourceMgr) && "No SourceMgr for valid location");
 
   // A command line -Wfoo has an invalid L and cannot override error/fatal
@@ -405,8 +411,8 @@ bool DiagnosticsEngine::setSeverityForGroup(diag::Flavor Flavor,
   SmallVector<diag::kind, 256> GroupDiags;
   if (Diags->getDiagnosticsInGroup(Flavor, Group, GroupDiags))
     // @unreal: BEGIN
-    if (Diags->getExistingCustomDiagIDs(Group, GroupDiags))
-      // @unreal: END
+    if (Diags->getExistingRedpointDiagIDs(Group, GroupDiags))
+    // @unreal: END
       return true;
 
   Diags->setGroupSeverity(Group, Map);

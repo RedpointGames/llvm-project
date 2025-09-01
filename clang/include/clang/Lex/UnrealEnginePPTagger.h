@@ -11,14 +11,13 @@ namespace clang {
 
 class UnrealEnginePPTagger : public PPCallbacks {
   Preprocessor &PP;
-  SourceManager *SM;
   std::vector<UnrealSpecifier *> AllocatedStrings;
 
   void *AllocSpecifier(const std::string &InSpecifierName,
                        const std::string &InSpecifierValue);
 
 public:
-  UnrealEnginePPTagger(Preprocessor &PP, SourceManager *SM);
+  UnrealEnginePPTagger(Preprocessor &PP);
   ~UnrealEnginePPTagger();
 
   virtual void MacroExpands(const Token &MacroNameTok,

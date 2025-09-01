@@ -29,8 +29,8 @@ try {
     )
     if ($null -ne $UbaEngine) {
         $CMakeCommand = "uet";
-        if (Test-Path "C:\Work\uet\UET\uet\bin\Debug\net9.0\win-x64\uet.exe") {
-            $CMakeCommand = "C:\Work\uet\UET\uet\bin\Debug\net9.0\win-x64\uet.exe"
+        if (Test-Path "F:\uet\UET\uet\bin\Debug\net9.0\win-x64\uet.exe") {
+            $CMakeCommand = "F:\uet\UET\uet\bin\Debug\net9.0\win-x64\uet.exe"
         }
         $CMakeCommandArguments = @(
             "cmake",
@@ -123,7 +123,8 @@ try {
     if (!$InstallOnly) {
         & $CMakeCommand $CMakeCommandArguments `
             --build $BuildPath `
-            --config $BuildConfiguration
+            --config $BuildConfiguration `
+            -j64
         if ($LastExitCode -ne 0) {
             exit $LastExitCode
         }

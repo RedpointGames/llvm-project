@@ -635,21 +635,21 @@ public:
 #endif
 };
 
-clang::DiagnosticIDs::Level
+clang::diag::Severity
 convertDiagnosticLevel(config::ClangRulesSeverity Severity) {
-  clang::DiagnosticIDs::Level DiagnosticLevel =
-      clang::DiagnosticIDs::Level::Remark;
+  clang::diag::Severity DiagnosticLevel =
+      clang::diag::Severity::Remark;
   switch (Severity) {
   case config::ClangRulesSeverity::CRS_Silence:
   case config::ClangRulesSeverity::CRS_Info:
-    DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
+    DiagnosticLevel = clang::diag::Severity::Remark;
     break;
   case config::ClangRulesSeverity::CRS_Warning:
   case config::ClangRulesSeverity::CRS_NotSet:
-    DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
+    DiagnosticLevel = clang::diag::Severity::Warning;
     break;
   case config::ClangRulesSeverity::CRS_Error:
-    DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
+    DiagnosticLevel = clang::diag::Severity::Error;
     break;
   }
   return DiagnosticLevel;
@@ -743,7 +743,7 @@ public:
       RULESET_TIME_REGION_BEFORE_ANALYSIS(
           this->CI, Timer, this->Timing,
           RulesetIWYUPreprocessorCaptureIncludeDependencyInsertTimer);
-      auto &List = IWYUIncludeTree.getOrInsertDefault(*LastIWYUFileEntry);
+      auto &List = IWYUIncludeTree[*LastIWYUFileEntry];
       List.try_emplace(*IncludedFile, IncludingHashLoc);
       IWYUIncludeMustTrack.insert(*IncludedFile);
       RULESET_TRACE_IWYU_PREPROCESSOR(
@@ -800,7 +800,7 @@ public:
       if (!DefinitionFile) {
         return;
       }
-      auto &List = IWYUDependencyTree.getOrInsertDefault(*LastIWYUFileEntry);
+      auto &List = IWYUDependencyTree[*LastIWYUFileEntry];
       List.insert(*DefinitionFile);
       RULESET_TRACE_IWYU_PREPROCESSOR(
           "File '" << LastIWYUFileEntry->getName() << "' uses macro from file '"
@@ -817,7 +817,7 @@ public:
         SrcMgr.getFileID(SrcMgr.getFileLoc(Dest->getLocation())));
     if (DestEntry) {
       if (DepList == nullptr) {
-        DepList = &IWYUDependencyTree.getOrInsertDefault(*UsageFile);
+        DepList = &IWYUDependencyTree[*UsageFile];
       }
 #if RULESET_ENABLE_TRACING_IWYU
       if (!DepList->contains(*DestEntry)) {
@@ -1546,7 +1546,7 @@ private:
       // and generate diagnostic IDs so that code can use pragmas to control
       // them.
       for (const auto &EffectiveRule : EffectiveConfig->EffectiveRules) {
-        this->CI.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+        this->CI.getDiagnostics().getDiagnosticIDs()->getRedpointDiagID(
             convertDiagnosticLevel(EffectiveRule.second.Severity),
             (EffectiveRule.second.Rule->ErrorMessage + " [-W" +
              EffectiveRule.second.Rule->Name + "]"),
@@ -1642,10 +1642,10 @@ private:
             CallsiteLoc = CallsiteIt->second.getSourceRange().getBegin();
           }
 
-          clang::DiagnosticIDs::Level DiagnosticLevel =
+          clang::diag::Severity DiagnosticLevel =
               convertDiagnosticLevel(this->EffectiveRule.Severity);
           auto CallsiteDiagID =
-              this->AST.getDiagnostics().getDiagnosticIDs()->getExistingCustomDiagID(
+              this->AST.getDiagnostics().getDiagnosticIDs()->getExistingRedpointDiagID(
                       this->EffectiveRule.Rule->Name, DiagnosticLevel);
           assert(
               CallsiteDiagID
@@ -1661,8 +1661,8 @@ private:
                 HintIt->second.getSourceRange().getBegin();
 
             auto HintDiagID =
-                this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
-                    clang::DiagnosticIDs::Note, HintKV.second);
+                this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(DiagnosticIDs::CustomDiagDesc(
+                    clang::diag::Severity::Remark, HintKV.second));
             this->AST.getDiagnostics().Report(HintLoc, HintDiagID);
           }
         }
@@ -1740,7 +1740,7 @@ public:
 
     // Set up our mutex and thread pool.
     llvm::sys::SmartMutex<true> ThreadMutex;
-    llvm::ThreadPool ThreadPool;
+    llvm::StdThreadPool ThreadPool;
 
     // Track a list of files that we'll run IWYU analysis on.
     llvm::DenseSet<FileEntryRef> IWYUAnalysisFiles;
@@ -1935,12 +1935,10 @@ public:
 class ClangRulesetsPPCallbacks : public PPCallbacks {
 private:
   std::shared_ptr<ClangRulesetsState> State;
-  CompilerInstance &CI;
 
 public:
-  ClangRulesetsPPCallbacks(std::shared_ptr<ClangRulesetsState> InState,
-                           CompilerInstance &InCI)
-      : State(InState), CI(InCI){};
+  ClangRulesetsPPCallbacks(std::shared_ptr<ClangRulesetsState> InState)
+      : State(InState) {};
   virtual ~ClangRulesetsPPCallbacks() override = default;
 
   virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
@@ -1960,22 +1958,23 @@ public:
                                   bool IsAngled, CharSourceRange FilenameRange,
                                   OptionalFileEntryRef File,
                                   StringRef SearchPath, StringRef RelativePath,
-                                  const Module *Imported,
-                                  SrcMgr::CharacteristicKind FileType) {
+                                  const Module *SuggestedModule,
+                                  bool ModuleImported,
+                                  SrcMgr::CharacteristicKind FileType) override {
     State->iwyuTrackInclusionDirective(HashLoc, File);
   }
 
   virtual void MacroExpands(const Token &MacroNameTok,
                             const MacroDefinition &MD, SourceRange Range,
-                            const MacroArgs *Args) {
+                            const MacroArgs *Args) override {
     State->iwyuTrackMacroUsage(MD, Range);
   }
 
-  virtual void SemaSuccessfulLookup(LookupResult &R, Scope *S) {
+  virtual void SemaSuccessfulLookup(LookupResult &R, Scope *S) override {
     State->iwyuTrackSemaUsage(R, S);
   }
 
-  virtual void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) {
+  virtual void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) override {
     State->iwyuTrackSemaUsage(R, DC);
   }
 };
@@ -2019,7 +2018,7 @@ ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
   // Register our preprocessor callbacks, which are used to discover rulesets
   // as files are included.
   CI.getPreprocessor().addPPCallbacks(
-      std::make_unique<ClangRulesetsPPCallbacks>(State, CI));
+      std::make_unique<ClangRulesetsPPCallbacks>(State));
 
   // Create and return our consumer for performing analysis.
   return std::make_unique<ClangRulesetsConsumer>(State);

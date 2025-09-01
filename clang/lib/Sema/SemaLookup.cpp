@@ -2226,8 +2226,8 @@ public:
       : SemaInsta(InSema), R(InR), S(nullptr), DC(InDC) {}
   ~UnrealSemaCallbackOnDestruct() {
     auto ResultKind = R.getResultKind();
-    if (ResultKind == LookupResult::NotFound ||
-        ResultKind == LookupResult::NotFoundInCurrentInstantiation) {
+    if (ResultKind == LookupResultKind::NotFound ||
+        ResultKind == LookupResultKind::NotFoundInCurrentInstantiation) {
       return;
     }
     auto *Callbacks = SemaInsta->PP.getPPCallbacks();

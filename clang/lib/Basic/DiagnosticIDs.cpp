@@ -238,47 +238,11 @@ CATEGORY(INSTALLAPI, REFACTORING)
 // Custom Diagnostic information
 //===----------------------------------------------------------------------===//
 
-namespace clang {
-namespace diag {
-using CustomDiagDesc = DiagnosticIDs::CustomDiagDesc;
-class CustomDiagInfo {
-  std::vector<CustomDiagDesc> DiagInfo;
-  std::map<CustomDiagDesc, unsigned> DiagIDs;
-  std::map<diag::Group, std::vector<unsigned>> GroupToDiags;
-
-public:
-  /// getDescription - Return the description of the specified custom
-  /// diagnostic.
-  const CustomDiagDesc &getDescription(unsigned DiagID) const {
-    assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
-           "Invalid diagnostic ID");
-    return DiagInfo[DiagID - DIAG_UPPER_LIMIT];
-  }
-
-  unsigned getOrCreateDiagID(DiagnosticIDs::CustomDiagDesc D) {
-    // Check to see if it already exists.
-    std::map<CustomDiagDesc, unsigned>::iterator I = DiagIDs.lower_bound(D);
-    if (I != DiagIDs.end() && I->first == D)
-      return I->second;
-
-    // If not, assign a new ID.
-    unsigned ID = DiagInfo.size() + DIAG_UPPER_LIMIT;
-    DiagIDs.insert(std::make_pair(D, ID));
-    DiagInfo.push_back(D);
-    if (auto Group = D.GetGroup())
-      GroupToDiags[*Group].emplace_back(ID);
-    return ID;
-  }
-
-  ArrayRef<unsigned> getDiagsInGroup(diag::Group G) const {
-    if (auto Diags = GroupToDiags.find(G); Diags != GroupToDiags.end())
-      return Diags->second;
-    return {};
-  }
-};
-
-} // namespace diag
-} // namespace clang
+// @unreal: BEGIN
+// @note: We've replaced custom diagnostic information entirely
+// so we can support silencing ruleset rules via pragmas.
+#include "DiagnosticIDs.UnrealImpl.h"
+// @unreal: END
 
 DiagnosticMapping DiagnosticIDs::getDefaultMapping(unsigned DiagID) const {
   DiagnosticMapping Info = DiagnosticMapping::Make(
@@ -373,11 +337,6 @@ bool DiagnosticIDs::isDeferrable(unsigned DiagID) {
   return false;
 }
 
-// @unreal: BEGIN
-// @note: We've replaced custom diagnostic information entirely
-// so we can support silencing ruleset rules via pragmas.
-#include "DiagnosticIDs.UnrealImpl.h"
-// @unreal: END
 //===----------------------------------------------------------------------===//
 // Common Diagnostic implementation
 //===----------------------------------------------------------------------===//
@@ -461,12 +420,6 @@ DiagnosticIDs::Level
 DiagnosticIDs::getDiagnosticLevel(unsigned DiagID, SourceLocation Loc,
                                   const DiagnosticsEngine &Diag) const {
   unsigned DiagClass = getDiagClass(DiagID);
-    // @unreal: BEGIN
-    auto CustomSeverity = getDiagnosticSeverity(DiagID, Loc, Diag);
-    if (CustomSeverity != diag::Severity::Fatal) {
-      return toLevel(CustomSeverity);
-    }
-    // @unreal: END
   if (DiagClass == CLASS_NOTE) return DiagnosticIDs::Note;
   return toLevel(getDiagnosticSeverity(DiagID, Loc, Diag));
 }

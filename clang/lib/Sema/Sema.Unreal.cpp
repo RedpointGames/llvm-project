@@ -91,31 +91,31 @@ void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
         break;
       }
       case tok::annot_unreal_uproperty: {
-        if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
+        if (dyn_cast<FieldDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UProperty;
         }
         break;
       }
       case tok::annot_unreal_ufunction: {
-        if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
+        if (dyn_cast<CXXMethodDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UFunction;
         }
         break;
       }
       case tok::annot_unreal_uclass: {
-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+        if (dyn_cast<RecordDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UClass;
         }
         break;
       }
       case tok::annot_unreal_uinterface: {
-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+        if (dyn_cast<RecordDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UInterface;
         }
         break;
       }
       case tok::annot_unreal_ustruct: {
-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+        if (dyn_cast<RecordDecl>(ND)) {
           ND->UnrealType = UnrealType::UT_UStruct;
         }
         break;
@@ -132,6 +132,8 @@ void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
         }
         break;
       }
+      default:
+        break;
       }
       this->UnrealStack.erase(this->UnrealStack.begin());
     }

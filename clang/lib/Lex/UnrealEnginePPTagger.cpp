@@ -11,8 +11,8 @@
 
 using namespace clang;
 
-UnrealEnginePPTagger::UnrealEnginePPTagger(Preprocessor &PP, SourceManager *SM)
-    : PP(PP), SM(SM){};
+UnrealEnginePPTagger::UnrealEnginePPTagger(Preprocessor &PP)
+    : PP(PP){};
 
 UnrealEnginePPTagger::~UnrealEnginePPTagger() {
 
