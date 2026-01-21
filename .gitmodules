@@ -1,0 +1,12 @@
+[submodule "llvm/18.x"]
+	path = llvm/18.x
+	url = ./
+	branch = redpoint/18.x
+[submodule "llvm/19.x"]
+	path = llvm/19.x
+	url = ./
+	branch = redpoint/19.x
+[submodule "llvm/21.x"]
+	path = llvm/21.x
+	url = ./
+	branch = redpoint/21.x
