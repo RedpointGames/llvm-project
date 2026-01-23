@@ -67,7 +67,7 @@ jobs:
       id: get-submodule-head
       run: |
         echo "SUBMODULE_HASH=$(git -C llvm/${{ matrix.version }} rev-parse HEAD)" >> $GITHUB_OUTPUT
-    - name: Restore Cached Build
+    - name: Restore cached build
       id: cache
       uses: actions/cache/restore@v4
       with:
@@ -104,7 +104,7 @@ jobs:
       run: |
         mv /opt/llvm-redpoint/${{ matrix.version }} llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
         zip -r llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-    - name: Save Cached Build
+    - name: Save cached build
       if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
@@ -132,7 +132,21 @@ jobs:
       uses: actions/checkout@v4
     - name: Checkout submodules
       run: git submodule update --init --recursive --depth 1 -- llvm/${{ matrix.version }}
+    - name: Get submodule head
+      id: get-submodule-head
+      shell: pwsh
+      run: |
+        $SubmoduleHash=(git -C llvm/${{ matrix.version }} rev-parse HEAD).Trim()
+        Set-Content -Path $env:GITHUB_OUTPUT -Value "SUBMODULE_HASH=$SubmoduleHash"
+    - name: Restore cached build
+      id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+        key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
     - name: Generate
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
         cd llvm/${{ matrix.version }}
@@ -151,11 +165,13 @@ jobs:
           -Hllvm -Bbuild/release/win64
         if ($LastExitCode -ne 0) { exit $LastExitCode }
     - name: Build
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
         cmake --build llvm/${{ matrix.version }}/build/release/win64 --config Release
         if ($LastExitCode -ne 0) { exit $LastExitCode }
     - name: Install
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
         if (Test-Path "C:\Program Files\LLVM") {
@@ -164,17 +180,25 @@ jobs:
         cmake --install llvm/${{ matrix.version }}/build/release/win64 --config Release --strip
         if ($LastExitCode -ne 0) { exit $LastExitCode }
     - name: "Prepare for Upload"
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
         Move-Item -Force "C:\Program Files\LLVM" llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-        Compress-Archive -Force -Path "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}" -DestinationPath "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
+        Compress-Archive -Force -Path "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}" -DestinationPath "llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip"
+    - name: Save cached build
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+        key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
     - name: "Upload LLVM ZIP"
       uses: actions/upload-artifact@v4
       with:
         name: llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
         if-no-files-found: error
         path: |
-          llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
+          llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
   
   create-release:
     name: "Create Release"
