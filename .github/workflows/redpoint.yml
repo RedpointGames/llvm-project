@@ -81,7 +81,7 @@ jobs:
           -Hllvm -Bbuild/release/linux
     - name: Build
       run: |
-        cmake --build llvm/${{ matrix.version }}/build/release/linux --config Release -j 20
+        cmake --build llvm/${{ matrix.version }}/build/release/linux --config Release
     - name: Install
       run: |
         cmake --install llvm/${{ matrix.version }}/build/release/linux --config Release --prefix "/opt/llvm-redpoint/${{ matrix.version }}" --strip
@@ -131,7 +131,7 @@ jobs:
     - name: Build
       shell: pwsh
       run: |
-        cmake --build llvm/${{ matrix.version }}/build/release/win64 --config Release -j 20
+        cmake --build llvm/${{ matrix.version }}/build/release/win64 --config Release
         if ($LastExitCode -ne 0) { exit $LastExitCode }
     - name: Install
       shell: pwsh
