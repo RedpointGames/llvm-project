@@ -8742,6 +8742,8 @@ AST_MATCHER_P(OMPExecutableDirective, isAllowedToContainClauseKind,
 // End OpenMP handling.
 //----------------------------------------------------------------------------//
 
+#include "ASTMatchers.Unreal.h"
+
 } // namespace ast_matchers
 } // namespace clang
 
