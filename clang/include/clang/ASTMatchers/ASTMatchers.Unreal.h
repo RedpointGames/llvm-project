@@ -41,3 +41,20 @@ extern const internal::ArgumentAdaptingMatcherFunc<internal::ForNoneMatcher>
 extern const internal::ArgumentAdaptingMatcherFunc<
     internal::ForNoDescendantMatcher>
     forNoDescendant;
+
+/// Matches if the matched type is a Plain Old Data (POD) type.
+///
+/// Given
+/// \code
+///   class Y
+///   {
+///   public:
+///       int a;
+///       std::string b;
+///   };
+/// \endcode
+/// fieldDecl(hasType(qualType(isPODType())))
+///   matches Y::a
+AST_MATCHER(QualType, isPODType) {
+  return Node.isPODType(Finder->getASTContext());
+}
