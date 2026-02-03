@@ -610,6 +610,8 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(voidType);
   REGISTER_MATCHER(whileStmt);
   REGISTER_MATCHER(withInitializer);
+  
+  #include "Registry.Unreal.h"
 }
 
 RegistryMaps::~RegistryMaps() = default;

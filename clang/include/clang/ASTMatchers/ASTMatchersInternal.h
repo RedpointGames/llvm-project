@@ -2335,6 +2335,8 @@ MatchTemplateArgLocAt(const TemplateSpecializationTypeLoc &Node,
          InnerMatcher.matches(Node.getArgLoc(Index), Finder, Builder);
 }
 
+#include "ASTMatchersInternal.Unreal.h"
+
 } // namespace internal
 
 } // namespace ast_matchers
