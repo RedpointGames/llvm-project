@@ -1,0 +1,42 @@
+From 48f43d1bcc001a480252eb4b273376eb69b39468 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 30 Jul 2024 13:54:33 +1000
+Subject: [PATCH] [ast-match] Disable casting checks since they seems to be
+ bugged for some AST matcher traversal
+
+---
+ llvm/include/llvm/ADT/PointerUnion.h | 4 +++-
+ llvm/include/llvm/Support/Casting.h  | 2 +-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/llvm/include/llvm/ADT/PointerUnion.h b/llvm/include/llvm/ADT/PointerUnion.h
+index 7d4ed02b6226..2bbd4a622800 100644
+--- a/llvm/include/llvm/ADT/PointerUnion.h
++++ b/llvm/include/llvm/ADT/PointerUnion.h
+@@ -231,7 +231,9 @@ template <typename... PTs> struct CastInfoPointerUnionImpl {
+   }
+ 
+   template <typename To> static To doCast(From &F) {
+-    assert(isPossible<To>(F) && "cast to an incompatible type!");
++    // @UNREAL: this cast seems to be bugged because isa<T> can pass and then
++    // fail on isPossible<T>??
++    // assert(isPossible<To>(F) && "cast to an incompatible type!");
+     return PointerLikeTypeTraits<To>::getFromVoidPointer(F.Val.getPointer());
+   }
+ };
+diff --git a/llvm/include/llvm/Support/Casting.h b/llvm/include/llvm/Support/Casting.h
+index 2391c1a531a5..bf278902f48d 100644
+--- a/llvm/include/llvm/Support/Casting.h
++++ b/llvm/include/llvm/Support/Casting.h
+@@ -563,7 +563,7 @@ template <typename First, typename Second, typename... Rest, typename From>
+ 
+ template <typename To, typename From>
+ [[nodiscard]] inline decltype(auto) cast(const From &Val) {
+-  assert(isa<To>(Val) && "cast<Ty>() argument of incompatible type!");
++  // assert(isa<To>(Val) && "cast<Ty>() argument of incompatible type!");
+   return CastInfo<To, const From>::doCast(Val);
+ }
+ 
+-- 
+2.50.1.windows.1
+

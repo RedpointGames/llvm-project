@@ -1,0 +1,94 @@
+From 1cd8343309ada60205090ff3195b2beb28774325 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 17:00:30 +1100
+Subject: [PATCH] [unreal-ast] Report diagnostic notes on what Unreal metadata
+ tokens were discarded and where they were located
+
+---
+ clang/include/clang/Basic/DiagnosticGroups.td    | 6 +++++-
+ clang/include/clang/Basic/DiagnosticSemaKinds.td | 4 +++-
+ clang/include/clang/Sema/Sema.h                  | 6 ++++--
+ clang/lib/Sema/SemaAttr.cpp                      | 5 ++++-
+ 4 files changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/clang/include/clang/Basic/DiagnosticGroups.td b/clang/include/clang/Basic/DiagnosticGroups.td
+index 19c3f1e04334..baf2136dd252 100644
+--- a/clang/include/clang/Basic/DiagnosticGroups.td
++++ b/clang/include/clang/Basic/DiagnosticGroups.td
+@@ -1554,6 +1554,10 @@ def ReadOnlyPlacementChecks : DiagGroup<"read-only-types">;
+ def UnsafeBufferUsageInContainer : DiagGroup<"unsafe-buffer-usage-in-container">;
+ def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInContainer]>;
+ 
++// @unreal: BEGIN
++def UnrealEngine : DiagGroup<"unreal-engine">;
++// @unreal: END
++
+ // Warnings and notes related to the function effects system underlying
+ // the nonblocking and nonallocating attributes.
+ def FunctionEffects : DiagGroup<"function-effects">;
+@@ -1569,4 +1573,4 @@ def ExtractAPIMisuse : DiagGroup<"extractapi-misuse">;
+ 
+ // Warnings about using the non-standard extension having an explicit specialization
+ // with a storage class specifier.
+-def ExplicitSpecializationStorageClass : DiagGroup<"explicit-specialization-storage-class">;
++def ExplicitSpecializationStorageClass : DiagGroup<"explicit-specialization-storage-class">;
+\ No newline at end of file
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index fd9194d3dd51..b38397832079 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3530,7 +3530,9 @@ def warn_duplicate_codeseg_attribute : Warning<
+ // @unreal: BEGIN
+ def warn_unreal_data_discarded_on_new_specifier : Warning<
+   "previous Unreal Engine data discarded on new specifier">,
+-  InGroup<DiagGroup<"unreal-engine">>;
++  InGroup<UnrealEngine>;
++def note_unreal_data_previous_location : Note<
++  "previously discarded metadata was located here">;
+ // @unreal: END
+ 
+ def err_anonymous_property: Error<
+diff --git a/clang/include/clang/Sema/Sema.h b/clang/include/clang/Sema/Sema.h
+index 272853319066..70f755a96325 100644
+--- a/clang/include/clang/Sema/Sema.h
++++ b/clang/include/clang/Sema/Sema.h
+@@ -1734,9 +1734,11 @@ public:
+   struct UnrealSpecifierSema {
+     tok::TokenKind Kind;
+     clang::UnrealSpecifier SpecData;
++    clang::SourceLocation Loc;
+     UnrealSpecifierSema(tok::TokenKind InKind,
+-                        const clang::UnrealSpecifier &InSpecData)
+-        : Kind(InKind), SpecData(InSpecData){};
++                        const clang::UnrealSpecifier &InSpecData,
++                        const clang::SourceLocation &InLoc)
++        : Kind(InKind), SpecData(InSpecData), Loc(InLoc){};
+   };
+   std::vector<UnrealSpecifierSema> UnrealStack;
+   std::map<std::string, CXXRecordDecl *>
+diff --git a/clang/lib/Sema/SemaAttr.cpp b/clang/lib/Sema/SemaAttr.cpp
+index aeb8ead7fe3b..0d56b346432c 100644
+--- a/clang/lib/Sema/SemaAttr.cpp
++++ b/clang/lib/Sema/SemaAttr.cpp
+@@ -388,6 +388,9 @@ void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+        Kind == tok::TokenKind::annot_unreal_uinterface ||
+        Kind == tok::TokenKind::annot_unreal_uproperty)) {
+     Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
++    for (const auto &Entry : UnrealStack) {
++      Diag(Entry.Loc, diag::note_unreal_data_previous_location);
++    }
+     UnrealStack.clear();
+   }
+   if (UnrealStack.size() == 0 &&
+@@ -396,7 +399,7 @@ void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+     assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
+                     "macro was pushed first!");
+   }
+-  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData));
++  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData, TokenLoc));
+   assert((UnrealStack.size() < 1000) &&
+          "Unreal stack not being consumed by type declaration.");
+ }
+-- 
+2.50.1.windows.1
+

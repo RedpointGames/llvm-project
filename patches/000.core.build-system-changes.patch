@@ -1,0 +1,4351 @@
+From df1a5b43985adfdf4e6b6ffc5f5e01341ed408dd Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Thu, 4 Jul 2024 15:55:55 +1000
+Subject: [PATCH] [core] Build system changes for Clang for Unreal Engine
+
+---
+ .ci/generate-buildkite-pipeline-premerge      | 312 -------
+ .ci/generate-buildkite-pipeline-scheduled     |  81 --
+ .ci/monolithic-linux.sh                       |  57 --
+ .ci/monolithic-windows.sh                     |  56 --
+ .github/CODEOWNERS                            | 103 ---
+ .github/dependabot.yml                        |  18 -
+ .github/new-issues-labeler.yml                |  29 -
+ .github/new-prs-labeler.yml                   | 838 ------------------
+ .github/workflows/README.md                   |   1 -
+ .github/workflows/build-ci-container.yml      |  60 --
+ .github/workflows/clang-tests.yml             |  38 -
+ .../containers/github-action-ci/Dockerfile    |  48 -
+ .github/workflows/docs.yml                    | 169 ----
+ .github/workflows/issue-release-workflow.yml  |  94 --
+ .github/workflows/issue-subscriber.yml        |  37 -
+ .github/workflows/libclang-abi-tests.yml      | 168 ----
+ .github/workflows/libclang-python-tests.yml   |  47 -
+ .github/workflows/libclc-tests.yml            |  39 -
+ .github/workflows/libcxx-build-and-test.yaml  | 201 -----
+ .../libcxx-check-generated-files.yml          |  24 -
+ .github/workflows/lld-tests.yml               |  38 -
+ .github/workflows/lldb-tests.yml              |  39 -
+ .github/workflows/llvm-bugs.yml               |  63 --
+ .github/workflows/llvm-project-tests.yml      | 149 ----
+ .github/workflows/llvm-tests.yml              | 192 ----
+ .github/workflows/new-issues.yml              |  23 -
+ .github/workflows/new-prs.yml                 |  75 --
+ .github/workflows/pr-code-format.yml          |  84 --
+ .github/workflows/pr-request-release-note.yml |  43 -
+ .github/workflows/pr-subscriber.yml           |  34 -
+ .github/workflows/release-binaries.yml        | 306 -------
+ .github/workflows/release-documentation.yml   |  88 --
+ .github/workflows/release-doxygen.yml         |  67 --
+ .github/workflows/release-lit.yml             |  74 --
+ .github/workflows/release-tasks.yml           |  81 --
+ .github/workflows/scorecard.yml               |  62 --
+ .../workflows/set-release-binary-outputs.sh   |  34 -
+ .github/workflows/spirv-tests.yml             |  29 -
+ .github/workflows/version-check.py            |  36 -
+ .github/workflows/version-check.yml           |  31 -
+ README.md                                     |  44 -
+ 41 files changed, 4012 deletions(-)
+ delete mode 100755 .ci/generate-buildkite-pipeline-premerge
+ delete mode 100755 .ci/generate-buildkite-pipeline-scheduled
+ delete mode 100755 .ci/monolithic-linux.sh
+ delete mode 100755 .ci/monolithic-windows.sh
+ delete mode 100644 .github/CODEOWNERS
+ delete mode 100644 .github/dependabot.yml
+ delete mode 100644 .github/new-issues-labeler.yml
+ delete mode 100644 .github/new-prs-labeler.yml
+ delete mode 100644 .github/workflows/README.md
+ delete mode 100644 .github/workflows/build-ci-container.yml
+ delete mode 100644 .github/workflows/clang-tests.yml
+ delete mode 100644 .github/workflows/containers/github-action-ci/Dockerfile
+ delete mode 100644 .github/workflows/docs.yml
+ delete mode 100644 .github/workflows/issue-release-workflow.yml
+ delete mode 100644 .github/workflows/issue-subscriber.yml
+ delete mode 100644 .github/workflows/libclang-abi-tests.yml
+ delete mode 100644 .github/workflows/libclang-python-tests.yml
+ delete mode 100644 .github/workflows/libclc-tests.yml
+ delete mode 100644 .github/workflows/libcxx-build-and-test.yaml
+ delete mode 100644 .github/workflows/libcxx-check-generated-files.yml
+ delete mode 100644 .github/workflows/lld-tests.yml
+ delete mode 100644 .github/workflows/lldb-tests.yml
+ delete mode 100644 .github/workflows/llvm-bugs.yml
+ delete mode 100644 .github/workflows/llvm-project-tests.yml
+ delete mode 100644 .github/workflows/llvm-tests.yml
+ delete mode 100644 .github/workflows/new-issues.yml
+ delete mode 100644 .github/workflows/new-prs.yml
+ delete mode 100644 .github/workflows/pr-code-format.yml
+ delete mode 100644 .github/workflows/pr-request-release-note.yml
+ delete mode 100644 .github/workflows/pr-subscriber.yml
+ delete mode 100644 .github/workflows/release-binaries.yml
+ delete mode 100644 .github/workflows/release-documentation.yml
+ delete mode 100644 .github/workflows/release-doxygen.yml
+ delete mode 100644 .github/workflows/release-lit.yml
+ delete mode 100644 .github/workflows/release-tasks.yml
+ delete mode 100644 .github/workflows/scorecard.yml
+ delete mode 100644 .github/workflows/set-release-binary-outputs.sh
+ delete mode 100644 .github/workflows/spirv-tests.yml
+ delete mode 100755 .github/workflows/version-check.py
+ delete mode 100644 .github/workflows/version-check.yml
+ delete mode 100644 README.md
+
+diff --git a/.ci/generate-buildkite-pipeline-premerge b/.ci/generate-buildkite-pipeline-premerge
+deleted file mode 100755
+index 7b1b4b8dac8a..000000000000
+--- a/.ci/generate-buildkite-pipeline-premerge
++++ /dev/null
+@@ -1,312 +0,0 @@
+-#!/usr/bin/env bash
+-#===----------------------------------------------------------------------===##
+-#
+-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+-# See https://llvm.org/LICENSE.txt for license information.
+-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+-#
+-#===----------------------------------------------------------------------===##
+-
+-#
+-# This file generates a Buildkite pipeline that triggers the various CI jobs for
+-# the LLVM project during pre-commit CI (each time a Phabricator diff is uploaded).
+-#
+-# See https://buildkite.com/docs/agent/v3/cli-pipeline#pipeline-format.
+-#
+-# As this outputs a yaml file, it's possible to log messages to stderr or
+-# prefix with "#".
+-
+-
+-set -eu
+-set -o pipefail
+-
+-# Environment variables script works with:
+-
+-# Set by buildkite
+-: ${BUILDKITE_PULL_REQUEST_BASE_BRANCH:=}
+-: ${BUILDKITE_COMMIT:=}
+-: ${BUILDKITE_BRANCH:=}
+-# Fetch origin to have an up to date merge base for the diff.
+-git fetch origin
+-# List of files affected by this commit
+-: ${MODIFIED_FILES:=$(git diff --name-only origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH}...HEAD)}
+-# Filter rules for generic windows tests
+-: ${WINDOWS_AGENTS:='{"queue": "windows"}'}
+-# Filter rules for generic linux tests
+-: ${LINUX_AGENTS:='{"queue": "linux"}'}
+-# Service agents, for interacting with Phabricator.
+-: ${SERVICE_AGENTS:='{"queue": "service"}'}
+-
+-reviewID="$(git log --format=%B -n 1 | sed -nE 's/^Review-ID:[[:space:]]*(.+)$/\1/p')"
+-if [[ "${reviewID}" != "" ]]; then
+-  buildMessage="https://llvm.org/${reviewID}"
+-else
+-  buildMessage="Push to branch ${BUILDKITE_BRANCH}"
+-fi
+-
+-cat <<EOF
+-steps:
+-EOF
+-
+-echo "Files modified:" >&2
+-echo "$MODIFIED_FILES" >&2
+-modified_dirs=$(echo "$MODIFIED_FILES" | cut -d'/' -f1 | sort -u)
+-echo "Directories modified:" >&2
+-echo "$modified_dirs" >&2
+-
+-function compute-projects-to-test() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    echo "${project}"
+-    case ${project} in
+-    lld)
+-      for p in bolt cross-project-tests; do
+-        echo $p
+-      done
+-    ;;
+-    llvm)
+-      for p in bolt clang clang-tools-extra flang lld lldb mlir polly; do
+-        echo $p
+-      done
+-    ;;
+-    clang)
+-      for p in clang-tools-extra compiler-rt flang libc lldb openmp cross-project-tests; do
+-        echo $p
+-      done
+-    ;;
+-    clang-tools-extra)
+-      echo libc
+-    ;;
+-    mlir)
+-      echo flang
+-    ;;
+-    *)
+-      # Nothing to do
+-    ;;
+-    esac
+-  done
+-}
+-
+-function add-dependencies() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    echo "${project}"
+-    case ${project} in
+-    bolt)
+-      for p in lld llvm; do
+-        echo $p
+-      done
+-    ;;
+-    cross-project-tests)
+-      for p in lld clang; do
+-        echo $p
+-      done
+-    ;;
+-    clang-tools-extra)
+-      for p in llvm clang; do
+-        echo $p
+-      done
+-    ;;
+-    compiler-rt|libc|openmp)
+-      echo clang lld
+-    ;;
+-    flang|lldb)
+-      for p in llvm clang; do
+-        echo $p
+-      done
+-    ;;
+-    lld|mlir|polly)
+-      echo llvm
+-    ;;
+-    *)
+-      # Nothing to do
+-    ;;
+-    esac
+-  done
+-}
+-
+-function exclude-linux() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    case ${project} in
+-    cross-project-tests) ;; # tests failing
+-    lldb)                ;; # tests failing
+-    openmp)              ;; # https://github.com/google/llvm-premerge-checks/issues/410
+-    *)
+-      echo "${project}"
+-    ;;
+-    esac
+-  done
+-}
+-
+-function exclude-windows() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    case ${project} in
+-    cross-project-tests) ;; # tests failing
+-    compiler-rt)         ;; # tests taking too long
+-    openmp)              ;; # TODO: having trouble with the Perl installation
+-    libc)                ;; # no Windows support
+-    lldb)                ;; # tests failing
+-    bolt)                ;; # tests are not supported yet
+-    *)
+-      echo "${project}"
+-    ;;
+-    esac
+-  done
+-}
+-
+-# Prints only projects that are both present in $modified_dirs and the passed
+-# list.
+-function keep-modified-projects() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    if echo "$modified_dirs" | grep -q -E "^${project}$"; then
+-      echo "${project}"
+-    fi
+-  done
+-}
+-
+-function check-targets() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    case ${project} in
+-    clang-tools-extra)
+-      echo "check-clang-tools"
+-    ;;
+-    compiler-rt)
+-      echo "check-all"
+-    ;;
+-    cross-project-tests)
+-      echo "check-cross-project"
+-    ;;
+-    lldb)
+-      echo "check-all" # TODO: check-lldb may not include all the LLDB tests?
+-    ;;
+-    pstl)
+-      echo "check-all"
+-    ;;
+-    libclc)
+-      echo "check-all"
+-    ;;
+-    *)
+-      echo "check-${project}"
+-    ;;
+-    esac
+-  done
+-}
+-
+-# Project specific pipelines.
+-
+-# If libc++ or one of the runtimes directories changed.
+-if echo "$modified_dirs" | grep -q -E "^(libcxx|libcxxabi|libunwind|runtimes|cmake)$"; then
+-  cat <<EOF
+-- trigger: "libcxx-ci"
+-  build:
+-    message: "${buildMessage}"
+-    commit: "${BUILDKITE_COMMIT}"
+-    branch: "${BUILDKITE_BRANCH}"
+-EOF
+-fi
+-
+-# If clang changed.
+-if echo "$modified_dirs" | grep -q -E "^(clang)$"; then
+-  cat <<EOF
+-- trigger: "clang-ci"
+-  build:
+-    message: "${buildMessage}"
+-    commit: "${BUILDKITE_COMMIT}"
+-    branch: "${BUILDKITE_BRANCH}"
+-EOF
+-fi
+-
+-# Generic pipeline for projects that have not defined custom steps.
+-#
+-# Individual projects should instead define the pre-commit CI tests that suits their
+-# needs while letting them run on the infrastructure provided by LLVM.
+-
+-# Figure out which projects need to be built on each platform
+-all_projects="bolt clang-tools-extra compiler-rt cross-project-tests flang libc libclc lld lldb llvm mlir openmp polly pstl"
+-modified_projects="$(keep-modified-projects ${all_projects})"
+-
+-linux_projects_to_test=$(exclude-linux $(compute-projects-to-test ${modified_projects}))
+-linux_check_targets=$(check-targets ${linux_projects_to_test} | sort | uniq)
+-linux_projects=$(add-dependencies ${linux_projects_to_test} | sort | uniq)
+-
+-windows_projects_to_test=$(exclude-windows $(compute-projects-to-test ${modified_projects}))
+-windows_check_targets=$(check-targets ${windows_projects_to_test} | sort | uniq)
+-windows_projects=$(add-dependencies ${windows_projects_to_test} | sort | uniq)
+-
+-# Generate the appropriate pipeline
+-if [[ "${linux_projects}" != "" ]]; then
+-  cat <<EOF
+-- label: ':linux: Linux x64'
+-  artifact_paths:
+-  - 'artifacts/**/*'
+-  - '*_result.json'
+-  - 'build/test-results.xml'
+-  agents: ${LINUX_AGENTS}
+-  retry:
+-    automatic:
+-      - exit_status: -1  # Agent was lost
+-        limit: 2
+-      - exit_status: 255 # Forced agent shutdown
+-        limit: 2
+-  timeout_in_minutes: 120
+-  env:
+-    CC: 'clang'
+-    CXX: 'clang++'
+-  commands:
+-  - './.ci/monolithic-linux.sh "$(echo ${linux_projects} | tr ' ' ';')" "$(echo ${linux_check_targets})"'
+-EOF
+-fi
+-
+-if [[ "${windows_projects}" != "" ]]; then
+-  cat <<EOF
+-- label: ':windows: Windows x64'
+-  artifact_paths:
+-  - 'artifacts/**/*'
+-  - '*_result.json'
+-  - 'build/test-results.xml'
+-  agents: ${WINDOWS_AGENTS}
+-  retry:
+-    automatic:
+-      - exit_status: -1  # Agent was lost
+-        limit: 2
+-      - exit_status: 255 # Forced agent shutdown
+-        limit: 2
+-  timeout_in_minutes: 150
+-  env:
+-    CC: 'cl'
+-    CXX: 'cl'
+-    LD: 'link'
+-  commands:
+-  - 'C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64'
+-  - 'bash .ci/monolithic-windows.sh "$(echo ${windows_projects} | tr ' ' ';')" "$(echo ${windows_check_targets})"'
+-EOF
+-fi
+-
+-# If build was triggered from a Phabricator review - send an update back.
+-if [[ -n "${ph_target_phid:-}" ]]; then
+-  cat << EOF
+-- continue_on_failure: true
+-  wait: '~'
+-- label: ':phabricator: update build status on Phabricator'
+-  agents: ${SERVICE_AGENTS}
+-  artifact_paths:
+-  - 'artifacts/**/*'
+-  commands:
+-  - export SRC=\$\${BUILDKITE_BUILD_PATH}/llvm-premerge-checks
+-  - rm -rf \$\${SRC}
+-  - git clone --depth 1 https://github.com/google/llvm-premerge-checks.git "\$\${SRC}"
+-  - cd \$\${SRC}
+-  - git fetch origin "main":x
+-  - git checkout x
+-  - echo "llvm-premerge-checks commit"
+-  - git rev-parse HEAD
+-  - pip install -q -r \$\${SRC}/scripts/requirements.txt
+-  - cd "\$\$BUILDKITE_BUILD_CHECKOUT_PATH"
+-  - \$\${SRC}/scripts/summary.py
+-  timeout_in_minutes: 10
+-EOF
+-fi
+diff --git a/.ci/generate-buildkite-pipeline-scheduled b/.ci/generate-buildkite-pipeline-scheduled
+deleted file mode 100755
+index d5c7c5965ef6..000000000000
+--- a/.ci/generate-buildkite-pipeline-scheduled
++++ /dev/null
+@@ -1,81 +0,0 @@
+-#!/usr/bin/env bash
+-#===----------------------------------------------------------------------===##
+-#
+-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+-# See https://llvm.org/LICENSE.txt for license information.
+-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+-#
+-#===----------------------------------------------------------------------===##
+-
+-#
+-# This file generates a Buildkite pipeline that triggers the various CI jobs for
+-# the LLVM project on scheduled builds.
+-#
+-# See https://buildkite.com/docs/agent/v3/cli-pipeline#pipeline-format.
+-#
+-
+-set -eu
+-set -o pipefail
+-
+-# Filter rules for generic windows tests
+-: ${WINDOWS_AGENTS:='{"queue": "windows"}'}
+-# Filter rules for generic linux tests
+-: ${LINUX_AGENTS:='{"queue": "linux"}'}
+-# Set by buildkite
+-: ${BUILDKITE_MESSAGE:=}
+-: ${BUILDKITE_COMMIT:=}
+-: ${BUILDKITE_BRANCH:=}
+-
+-cat <<EOF
+-steps:
+-  - trigger: "libcxx-ci"
+-    build:
+-      message: "${BUILDKITE_MESSAGE}"
+-      commit: "${BUILDKITE_COMMIT}"
+-      branch: "${BUILDKITE_BRANCH}"
+-
+-  - trigger: "clang-ci"
+-    build:
+-      message: "${BUILDKITE_MESSAGE}"
+-      commit: "${BUILDKITE_COMMIT}"
+-      branch: "${BUILDKITE_BRANCH}"
+-
+-  - label: ':linux: Linux x64'
+-    artifact_paths:
+-    - 'artifacts/**/*'
+-    - '*_result.json'
+-    - 'build/test-results.xml'
+-    agents: ${LINUX_AGENTS}
+-    retry:
+-      automatic:
+-        - exit_status: -1  # Agent was lost
+-          limit: 2
+-        - exit_status: 255 # Forced agent shutdown
+-          limit: 2
+-    timeout_in_minutes: 120
+-    env:
+-      CC: 'clang'
+-      CXX: 'clang++'
+-    commands:
+-    - ./.ci/monolithic-linux.sh "bolt;clang;clang-tools-extra;compiler-rt;flang;libc;libclc;lld;llvm;mlir;polly;pstl" "check-all"
+-
+-  - label: ':windows: Windows x64'
+-    artifact_paths:
+-    - 'artifacts/**/*'
+-    - '*_result.json'
+-    - 'build/test-results.xml'
+-    agents: ${WINDOWS_AGENTS}
+-    retry:
+-      automatic:
+-        - exit_status: -1  # Agent was lost
+-          limit: 2
+-        - exit_status: 255 # Forced agent shutdown
+-          limit: 2
+-    timeout_in_minutes: 150
+-    env:
+-      CC: 'cl'
+-      CXX: 'cl'
+-      LD: 'link'
+-    commands:
+-    - C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
+-    - bash .ci/monolithic-windows.sh "clang;clang-tools-extra;flang;libclc;lld;llvm;mlir;polly;pstl" "check-all"
+diff --git a/.ci/monolithic-linux.sh b/.ci/monolithic-linux.sh
+deleted file mode 100755
+index 1e7b2d2a36c2..000000000000
+--- a/.ci/monolithic-linux.sh
++++ /dev/null
+@@ -1,57 +0,0 @@
+-#!/usr/bin/env bash
+-#===----------------------------------------------------------------------===##
+-#
+-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+-# See https://llvm.org/LICENSE.txt for license information.
+-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+-#
+-#===----------------------------------------------------------------------===##
+-
+-#
+-# This script performs a monolithic build of the monorepo and runs the tests of
+-# most projects on Linux. This should be replaced by per-project scripts that
+-# run only the relevant tests.
+-#
+-
+-set -ex
+-set -o pipefail
+-
+-MONOREPO_ROOT="${MONOREPO_ROOT:="$(git rev-parse --show-toplevel)"}"
+-BUILD_DIR="${BUILD_DIR:=${MONOREPO_ROOT}/build}"
+-rm -rf ${BUILD_DIR}
+-
+-ccache --zero-stats
+-
+-if [[ -n "${CLEAR_CACHE:-}" ]]; then
+-  echo "clearing cache"
+-  ccache --clear
+-fi
+-
+-function show-stats {
+-  mkdir -p artifacts
+-  ccache --print-stats > artifacts/ccache_stats.txt
+-}
+-trap show-stats EXIT
+-
+-projects="${1}"
+-targets="${2}"
+-
+-echo "--- cmake"
+-pip install -q -r ${MONOREPO_ROOT}/mlir/python/requirements.txt
+-cmake -S ${MONOREPO_ROOT}/llvm -B ${BUILD_DIR} \
+-      -D LLVM_ENABLE_PROJECTS="${projects}" \
+-      -G Ninja \
+-      -D CMAKE_BUILD_TYPE=Release \
+-      -D LLVM_ENABLE_ASSERTIONS=ON \
+-      -D LLVM_BUILD_EXAMPLES=ON \
+-      -D COMPILER_RT_BUILD_LIBFUZZER=OFF \
+-      -D LLVM_LIT_ARGS="-v --xunit-xml-output ${BUILD_DIR}/test-results.xml --timeout=1200 --time-tests" \
+-      -D LLVM_ENABLE_LLD=ON \
+-      -D CMAKE_CXX_FLAGS=-gmlt \
+-      -D BOLT_CLANG_EXE=/usr/bin/clang \
+-      -D LLVM_CCACHE_BUILD=ON \
+-      -D MLIR_ENABLE_BINDINGS_PYTHON=ON
+-
+-echo "--- ninja"
+-# Targets are not escaped as they are passed as separate arguments.
+-ninja -C "${BUILD_DIR}" ${targets}
+diff --git a/.ci/monolithic-windows.sh b/.ci/monolithic-windows.sh
+deleted file mode 100755
+index a704e855f011..000000000000
+--- a/.ci/monolithic-windows.sh
++++ /dev/null
+@@ -1,56 +0,0 @@
+-#!/usr/bin/env bash
+-#===----------------------------------------------------------------------===##
+-#
+-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+-# See https://llvm.org/LICENSE.txt for license information.
+-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+-#
+-#===----------------------------------------------------------------------===##
+-
+-#
+-# This script performs a monolithic build of the monorepo and runs the tests of
+-# most projects on Windows. This should be replaced by per-project scripts that
+-# run only the relevant tests.
+-#
+-
+-set -ex
+-set -o pipefail
+-
+-MONOREPO_ROOT="${MONOREPO_ROOT:="$(git rev-parse --show-toplevel)"}"
+-BUILD_DIR="${BUILD_DIR:=${MONOREPO_ROOT}/build}"
+-
+-rm -rf ${BUILD_DIR}
+-
+-if [[ -n "${CLEAR_CACHE:-}" ]]; then
+-  echo "clearing sccache"
+-  rm -rf "$SCCACHE_DIR"
+-fi
+-
+-sccache --zero-stats
+-function show-stats {
+-  mkdir -p artifacts
+-  sccache --show-stats >> artifacts/sccache_stats.txt
+-}
+-trap show-stats EXIT
+-
+-projects="${1}"
+-targets="${2}"
+-
+-echo "--- cmake"
+-pip install -q -r ${MONOREPO_ROOT}/mlir/python/requirements.txt
+-cmake -S ${MONOREPO_ROOT}/llvm -B ${BUILD_DIR} \
+-      -D LLVM_ENABLE_PROJECTS="${projects}" \
+-      -G Ninja \
+-      -D CMAKE_BUILD_TYPE=Release \
+-      -D LLVM_ENABLE_ASSERTIONS=ON \
+-      -D LLVM_BUILD_EXAMPLES=ON \
+-      -D COMPILER_RT_BUILD_LIBFUZZER=OFF \
+-      -D LLVM_LIT_ARGS="-v --xunit-xml-output ${BUILD_DIR}/test-results.xml --timeout=1200 --time-tests" \
+-      -D COMPILER_RT_BUILD_ORC=OFF \
+-      -D CMAKE_C_COMPILER_LAUNCHER=sccache \
+-      -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
+-      -D MLIR_ENABLE_BINDINGS_PYTHON=ON
+-
+-echo "--- ninja"
+-# Targets are not escaped as they are passed as separate arguments.
+-ninja -C "${BUILD_DIR}" ${targets}
+diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
+deleted file mode 100644
+index 3c67a45bbcf7..000000000000
+--- a/.github/CODEOWNERS
++++ /dev/null
+@@ -1,103 +0,0 @@
+-# This file lists reviewers that are auto-assigned when a pull request modifies
+-# certain files or directories. If you add yourself to this file, you commit to
+-# reviewing a large fraction of pull requests in the relevant area.
+-#
+-# The GitHub "code owners" mechanism is used exclusively to auto-assign
+-# reviewers and does not carry significance beyond that. It is not necessary
+-# to receive an approval from a "code owner" in particular -- any LLVM project
+-# member can approve pull requests.
+-#
+-# Note that GitHub's concept of "code owner" is independent from LLVM's own
+-# "code owner" concept, they merely happen to share terminology. See
+-# https://llvm.org/docs/DeveloperPolicy.html#code-owners, as well as the
+-# CODE_OWNERS.txt files in the respective subproject directories.
+-
+-/libcxx/ @llvm/reviewers-libcxx
+-/libcxxabi/ @llvm/reviewers-libcxxabi
+-/libunwind/ @llvm/reviewers-libunwind
+-/runtimes/ @llvm/reviewers-libcxx
+-
+-/llvm/lib/Analysis/BasicAliasAnalysis.cpp @nikic
+-/llvm/lib/Analysis/InstructionSimplify.cpp @nikic
+-/llvm/lib/Analysis/LazyValueInfo.cpp @nikic
+-/llvm/lib/Analysis/ScalarEvolution.cpp @nikic
+-/llvm/lib/Analysis/ValueTracking.cpp @nikic
+-/llvm/lib/IR/ConstantRange.cpp @nikic
+-/llvm/lib/Transforms/Scalar/CorrelatedValuePropagation.cpp @nikic
+-/llvm/lib/Transforms/Scalar/MemCpyOptimizer.cpp @nikic
+-/llvm/lib/Transforms/InstCombine/ @nikic
+-
+-/clang/test/CXX/drs/ @Endilll
+-/clang/www/cxx_dr_status.html @Endilll
+-/clang/www/make_cxx_dr_status @Endilll
+-
+-/lldb/ @JDevlieghere
+-
+-# MLIR Interfaces.
+-/mlir/include/mlir/Interfaces/TilingInterface.* @MaheshRavishankar @nicolasvasilache
+-/mlir/lib/Interfaces/TilingInterface.* @MaheshRavishankar @nicolasvasilache
+-/mlir/include/mlir/Interfaces/ValueBoundsOpInterface.* @matthias-springer
+-/mlir/lib/Interfaces/ValueBoundsOpInterface.* @matthias-springer
+-/mlir/**/ValueBoundsOpInterfaceImpl.* @matthias-springer
+-/mlir/include/mlir/Interfaces/RuntimeVerifiableOpInterface.* @matthias-springer
+-/mlir/lib/Interfaces/RuntimeVerifiableOpInterface.* @matthias-springer
+-/mlir/**/RuntimeVerifiableOpInterfaceImpl.* @matthias-springer
+-/mlir/include/mlir/Interfaces/SubsetOpInterface.* @matthias-springer
+-/mlir/lib/Interfaces/SubsetOpInterface.* @matthias-springer
+-/mlir/**/SubsetOpInterfaceImpl.* @matthias-springer
+-/mlir/include/mlir/Interfaces/DestinationStyleOpInterface.* @matthias-springer
+-/mlir/lib/Interfaces/DestinationStyleOpInterface.* @matthias-springer
+-
+-# Bufferization Dialect in MLIR.
+-/mlir/include/mlir/Dialect/Bufferization @matthias-springer
+-/mlir/lib/Dialect/Bufferization @matthias-springer
+-/mlir/**/BufferizableOpInterfaceImpl.* @matthias-springer
+-/mlir/Dialect/*/Transforms/Bufferize.cpp @matthias-springer
+-
+-# Linalg Dialect in MLIR.
+-/mlir/include/mlir/Dialect/Linalg @dcaballe @nicolasvasilache
+-/mlir/lib/Dialect/Linalg @dcaballe @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/DecomposeLinalgOps.cpp @MaheshRavishankar @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/DropUnitDims.cpp @MaheshRavishankar @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp @MaheshRavishankar @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/DataLayoutPropagation.cpp @hanhanW @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/Transforms.cpp @hanhanW @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp @hanhanW @nicolasvasilache
+-
+-# MemRef Dialect in MLIR.
+-/mlir/lib/Dialect/MemRef/Transforms/EmulateNarrowType.cpp @MaheshRavishankar @nicolasvasilache
+-
+-# Vector Dialect in MLIR.
+-/mlir/**/*AMX* @aartbik @dcaballe
+-/mlir/**/*Neon* @banach-space @dcaballe @nicolasvasilache
+-/mlir/**/*SME* @banach-space @dcaballe @nicolasvasilache
+-/mlir/**/*SVE* @banach-space @dcaballe @nicolasvasilache
+-/mlir/**/*VectorInterfaces* @dcaballe @nicolasvasilache
+-/mlir/**/*VectorToSCF* @banach-space @dcaballe @nicolasvasilache @matthias-springer
+-/mlir/**/*VectorToLLVM* @banach-space @dcaballe @nicolasvasilache
+-/mlir/**/*X86Vector* @aartbik @dcaballe @nicolasvasilache
+-/mlir/include/mlir/Dialect/Vector @dcaballe @nicolasvasilache
+-/mlir/lib/Dialect/Vector @dcaballe @nicolasvasilache
+-/mlir/lib/Dialect/Vector/Transforms/VectorEmulateNarrowType.cpp @MaheshRavishankar @nicolasvasilache
+-/mlir/**/*EmulateNarrowType* @hanhanW
+-/mlir/lib/Dialect/Vector/Transforms/* @hanhanW @nicolasvasilache
+-
+-# Presburger library in MLIR
+-/mlir/**/*Presburger* @Groverkss @Superty
+-
+-# Tensor Dialect in MLIR.
+-/mlir/lib/Dialect/Tensor/IR/TensorTilingInterfaceImpl.cpp @hanhanW @nicolasvasilache
+-/mlir/lib/Dialect/Tensor/Transforms/* @hanhanW @nicolasvasilache
+-
+-# Transform Dialect in MLIR.
+-/mlir/include/mlir/Dialect/Transform/* @ftynse @nicolasvasilache
+-/mlir/lib/Dialect/Transform/* @ftynse @nicolasvasilache
+-
+-# SPIR-V Dialect in MLIR.
+-/mlir/**/SPIRV/ @antiagainst @kuhar
+-/mlir/**/SPIRVTo*/ @antiagainst @kuhar
+-/mlir/**/*ToSPIRV/ @antiagainst @kuhar
+-/mlir/tools/mlir-tblgen/SPIRVUtilsGen.cpp @antiagainst @kuhar
+-
+-# MLIR Sparsifier.
+-/mlir/**/*SparseTensor*/ @aartbik @PeimingLiu @yinying-lisa-li @matthias-springer
+diff --git a/.github/dependabot.yml b/.github/dependabot.yml
+deleted file mode 100644
+index 8c1dfd39b82c..000000000000
+--- a/.github/dependabot.yml
++++ /dev/null
+@@ -1,18 +0,0 @@
+-version: 2
+-updates:
+-  - package-ecosystem: "github-actions"
+-    directory: "/"
+-    schedule:
+-      interval: "monthly"
+-    groups:
+-      github-actions:
+-        patterns:
+-          - "*"
+-  - package-ecosystem: "pip"
+-    directory: "/llvm/docs"
+-    schedule:
+-      interval: "monthly"
+-    groups:
+-      llvm-docs-requirements:
+-        patterns:
+-          - "*"
+diff --git a/.github/new-issues-labeler.yml b/.github/new-issues-labeler.yml
+deleted file mode 100644
+index a5933d7fc9b3..000000000000
+--- a/.github/new-issues-labeler.yml
++++ /dev/null
+@@ -1,29 +0,0 @@
+-'clang':
+-  - '/\bclang(?!\-)\b/i'
+-
+-'clang-format':
+-  - '/\bclang-format/i'
+-
+-'clang-tidy':
+-  - '/\bclang-tidy/i'
+-
+-'libc++':
+-  - '/libc[+x]{2}(?!\-)/i'
+-
+-'libc++abi':
+-  - '/libc[+x]{2}-?abi/i'
+-
+-'libc':
+-  - '/\blibc(?![-+])\b/i'
+-
+-'flang':
+-  - '/\bflang(?!\-)\b/i'
+-
+-'lld':
+-  - '/\blld(?!\-)\b/i'
+-
+-'mlir':
+-  - '/\bmlir(?!\-)\b/i'
+-
+-'bolt':
+-  - '/\bbolt(?!\-)\b/i'
+diff --git a/.github/new-prs-labeler.yml b/.github/new-prs-labeler.yml
+deleted file mode 100644
+index b42bcb1887fb..000000000000
+--- a/.github/new-prs-labeler.yml
++++ /dev/null
+@@ -1,838 +0,0 @@
+-clang:dataflow:
+-  - clang/include/clang/Analysis/FlowSensitive/**/*
+-  - clang/lib/Analysis/FlowSensitive/**/*
+-  - clang/unittests/Analysis/FlowSensitive/**/*
+-  - clang/docs/DataFlowAnalysisIntro.md
+-  - clang/docs/DataFlowAnalysisIntroImages/**/*
+-
+-clang:frontend:
+-  - clang/lib/AST/**/*
+-  - clang/include/clang/AST/**/*
+-  - clang/lib/Basic/**/*
+-  - clang/include/clang/Basic/**/*
+-  - clang/lib/Interpreter/**/*
+-  - clang/include/clang/Interpreter/**/*
+-  - clang/lib/Lex/**/*
+-  - clang/include/clang/Lex/**/*
+-  - clang/lib/Parse/**/*
+-  - clang/include/clang/Parse/**/*
+-  - clang/lib/Sema/**/*
+-  - clang/include/clang/Sema/**/*
+-
+-clang:headers:
+-  - clang/lib/Headers/**/*
+-
+-compiler-rt:
+-  - compiler-rt/**/*
+-
+-flang:
+-  - flang/**/*
+-
+-flang:frontend:
+-  - flang/Parser/**/*
+-  - flang/Evaluate/**/*
+-  - flang/Semantics/**/*
+-
+-HLSL:
+-  - clang/*HLSL*/**/*
+-  - clang/**/*HLSL*
+-  - llvm/**/Frontend/HLSL/**/*
+-
+-lld:
+-  - lld/**/*
+-
+-llvm-lit:
+-  - llvm/utils/lit/**/*
+-
+-PGO:
+-  - llvm/lib/Transforms/Instrumentation/CGProfile.cpp
+-  - llvm/lib/Transforms/Instrumentation/ControlHeightReduction.cpp
+-  - llvm/lib/Transforms/Instrumentation/IndirectCallPromotion.cpp
+-  - llvm/lib/Transforms/Instrumentation/InstrProfiling.cpp
+-  - llvm/lib/Transforms/Instrumentation/PGO*
+-  - llvm/lib/Transforms/Instrumentation/ValueProfile*
+-  - llvm/test/Instrumentation/InstrProfiling/**/*
+-  - llvm/test/Transforms/PGOProfile/**/*
+-  - llvm/**/llvm-profdata/**/*
+-  - llvm/**/llvm-profgen/**/*
+-  - llvm/unittests/ProfileData/**/*
+-
+-vectorization:
+-  - llvm/lib/Transforms/Vectorize/**/*
+-  - llvm/include/llvm/Transforms/Vectorize/**/*
+-
+-# IMPORTED FROM CODEOWNERS
+-LTO:
+-  - llvm/*/LTO/**
+-  - llvm/*/Linker/**
+-  - llvm/*/ThinLTO/**
+-  - llvm/lib/Transforms/*/FunctionImport*
+-  - llvm/tools/gold/**
+-
+-mc:
+-  - llvm/*/MC/**
+-
+-clang:driver:
+-  - clang/*/Driver/**
+-
+-compiler-rt:sanitizer:
+-  - llvm/lib/Transforms/Instrumentation/*Sanitizer*
+-  - compiler-rt/lib/interception/**
+-  - compiler-rt/lib/*san*/**
+-  - compiler-rt/test/*san*/**
+-  - compiler-rt/lib/fuzzer/**
+-  - compiler-rt/test/fuzzer/**
+-  - compiler-rt/lib/scudo/**
+-  - compiler-rt/test/scudo/**
+-
+-compiler-rt:scudo:
+-  - compiler-rt/lib/scudo/**
+-  - compiler-rt/test/scudo/**
+-
+-xray:
+-  - llvm/tools/llvm-xray/**
+-  - compiler-rt/*/xray/**
+-  - clang/include/clang/Basic/XRay*
+-  - clang/lib/Basic/XRay*
+-  - compiler-rt/*/xray/**
+-  - llvm/include/llvm/XRay/**
+-  - llvm/lib/XRay/**
+-  - llvm/tools/llvm-xray/**
+-  - llvm/unittests/XRay/**
+-  - compiler-rt/*/xray/**
+-
+-clang:codegen:
+-  - clang/lib/CodeGen/**
+-  - clang/include/clang/CodeGen/**
+-
+-mlir:
+-  - mlir/**
+-
+-mlir:core:
+-  - mlir/include/mlir/Support/**
+-  - mlir/lib/Support/**
+-  - mlir/include/mlir/Parser/**
+-  - mlir/lib/Parser/**
+-  - mlir/include/mlir/IR/**
+-  - mlir/lib/IR/**
+-  - mlir/include/mlir/Bytecode/**
+-  - mlir/lib/Bytecode/**
+-  - mlir/include/mlir/AsmParser/**
+-  - mlir/lib/AsmParser/**
+-  - mlir/include/mlir/Pass/**
+-  - mlir/lib/Pass/**
+-  - mlir/include/mlir/Tools/**
+-  - mlir/lib/Tools/**
+-  - mlir/include/mlir/Reducer/**
+-  - mlir/lib/Reducer/**
+-  - mlir/include/mlir/Transforms/**
+-  - mlir/lib/Transforms/**
+-  - mlir/include/mlir/Debug/**
+-  - mlir/lib/Debug/**
+-  - mlir/tools/**
+-
+-mlir:ods:
+-  - mlir/TableGen/**
+-  - mlir/tblgen/**
+-  - mlir/include/mlir/IR/*.td
+-
+-mlir:bindings:
+-  - mlir/Bindings/**
+-
+-mlir:gpu:
+-  - mlir/**/*GPU*/**
+-
+-mlir:amdgpu:
+-  - mlir/**/AMDGPU/**
+-
+-mlir:amx:
+-  - mlir/**/AMX/**
+-
+-mlir:affine:
+-  - mlir/**/Affine/**
+-
+-mlir:arith:
+-  - mlir/**/Arith/**
+-
+-mlir:neon:
+-  - mlir/**/ArmNeon/**
+-
+-mlir:sme:
+-  - mlir/**/ArmSME/**
+-
+-mlir:sve:
+-  - mlir/**/ArmSVE/**
+-
+-mlir:async:
+-  - mlir/**/Async/**
+-  - mlir/**/Async/**
+-
+-mlir:bufferization:
+-  - mlir/**/Bufferization/**
+-
+-mlir:complex:
+-  - mlir/**/Complex/**
+-
+-mlir:cf:
+-  - mlir/**/ControlFlow/**
+-
+-mlir:dlti:
+-  - mlir/**/DLTI/**
+-
+-mlir:emitc:
+-  - mlir/**/EmitC/**
+-  - mlir/lib/Target/Cpp/**
+-
+-mlir:func:
+-  - mlir/**/Func/**
+-
+-mlir:irdl:
+-  - mlir/**/IRDL/**
+-
+-mlir:index:
+-  - mlir/**/Index/**
+-
+-mlir:llvm:
+-  - mlir/**/LLVM*
+-  - mlir/**/LLVM*/**
+-
+-mlir:linalg:
+-  - mlir/**/*linalg/**
+-  - mlir/**/*Linalg/**
+-
+-mlir:mlprogram:
+-  - mlir/**/MLProgram/**
+-
+-mlir:math:
+-  - mlir/**/Math/**
+-
+-mlir:memref:
+-  - mlir/**/MemRef/**
+-
+-mlir:nvgpu:
+-  - mlir/**/NVGPU/**
+-
+-mlir:openacc:
+-  - mlir/**/*OpenACC*
+-  - mlir/**/*OpenACC*/**
+-
+-mlir:openmp:
+-  - mlir/**/*OpenMP*
+-  - mlir/**/*OpenMP*/**
+-
+-mlir:pdl:
+-  - mlir/**/PDL/**
+-
+-mlir:quant:
+-  - mlir/**/Quant/**
+-
+-mlir:scf:
+-  - mlir/**/SCF/**
+-
+-mlir:spirv:
+-  - mlir/**/SPIRV/**
+-  - mlir/**/SPIRVTo*/**
+-  - mlir/**/*ToSPIRV/**
+-  - mlir/tools/mlir-spirv-cpu-runner/**
+-  - mlir/tools/mlir-vulkan-runner/**
+-  - mlir/tools/mlir-tblgen/SPIRVUtilsGen.cpp
+-
+-mlir:shape:
+-  - mlir/**/Shape/**
+-
+-mlir:sparse:
+-  - mlir/**/SparseTensor/**
+-
+-mlir:tensor:
+-  - mlir/**/Tensor/**
+-
+-mlir:tosa:
+-  - mlir/**/Tosa/**
+-
+-mlir:ub:
+-  - mlir/**/UB/**
+-
+-mlir:vector:
+-  - mlir/**/*Vector/**
+-
+-mlir:execution-engine:
+-  - mlir/**/ExecutionEngine/**
+-
+-mlir:presburger:
+-  - mlir/**/*Presburger*/**
+-
+-mlir:python:
+-  - mlir/python/**/*
+-
+-mlir:vectorops:
+-  - mlir/**/Vector/**/*
+-
+-coroutines:
+-  - clang/docs/DebuggingCoroutines.rst
+-  - clang/lib/Sema/SemaCoroutine.cpp
+-  - clang/lib/CodeGen/CGCoroutine.cpp
+-  - clang/test/CodeGenCoroutines/**
+-  - llvm/docs/Coroutines.rst
+-  - llvm/include/llvm/Transforms/Coroutines/**
+-  - llvm/lib/Transforms/Coroutines/**
+-  - llvm/test/Transforms/Coroutines/*
+-
+-clang:modules:
+-  - clang/docs/StandardCPlusPlusModules.rst
+-  - clang/include/clang/AST/AbstractBasicReader.h
+-  - clang/include/clang/AST/AbstractBasicWriter.h
+-  - clang/include/clang/AST/AbstractTypeReader.h
+-  - clang/include/clang/AST/AbstractTypeWriter.h
+-  - clang/include/clang/AST/PropertiesBase.td
+-  - clang/include/clang/AST/ODRHash.h
+-  - clang/include/clang/AST/TypeProperties.td
+-  - clang/include/clang/Basic/Module.h
+-  - clang/include/clang/Frontend/PrecompiledPreamble.h
+-  - clang/include/clang/Lex/ModuleLoader.h
+-  - clang/include/clang/Lex/ModuleMap.h
+-  - clang/include/clang/Serialization/**
+-  - clang/lib/AST/ODRHash.cpp
+-  - clang/lib/AST/StmtProfile.cpp
+-  - clang/lib/Basic/Module.cpp
+-  - clang/lib/Frontend/ModuleDependencyCollector.cpp
+-  - clang/lib/Frontend/PrecompiledPreamble.cpp
+-  - clang/lib/Lex/ModuleMap.cpp
+-  - clang/lib/Sema/SemaModule.cpp
+-  - clang/lib/Serialization/**
+-  - clang/test/CXX/module/**
+-  - clang/test/Modules/**
+-  - clang/unittests/Serialization/*
+-
+-clang-tidy:
+-  - clang-tools-extra/clang-tidy/**
+-  - clang-tools-extra/docs/clang-tidy/**
+-  - clang-tools-extra/test/clang-tidy/**
+-
+-clang-tools-extra:
+-  - clang-tools-extra/**
+-
+-tools:llvm-mca:
+-  - llvm/tools/llvm-mca/**
+-  - llvm/include/llvm/MCA/**
+-  - llvm/lib/MCA/**
+-
+-clang:
+-  - any:
+-    - clang/**
+-    - '!clang/**/Format/**'
+-    - '!clang/tools/clang-format/**'
+-
+-testing-tools:
+-  - llvm/include/llvm/FileCheck/**
+-  - llvm/lib/FileCheck/**
+-  - llvm/test/FileCheck/**
+-  - llvm/unittests/FileCheck/**
+-  - llvm/utils/lit/**
+-  - llvm/utils/split-file/**
+-  - llvm/utils/not/**
+-  - llvm/utils/count/**
+-  - llvm/utils/FileCheck/**
+-  - llvm/docs/CommandGuide/FileCheck.rst
+-  - llvm/docs/CommandGuide/lit.rst
+-  - llvm/docs/TestingGuide.rst
+-  - llvm/test/Other/FileCheck-space.txt
+-  - llvm/utils/UpdateTestChecks/**
+-  - llvm/utils/update*_test_checks.py
+-
+-debuginfo:
+-  - clang/lib/CodeGen/CGDebugInfo.*
+-  - llvm/include/llvm/BinaryFormat/Dwarf.*
+-  - llvm/include/llvm/CodeGen/*Debug*.*
+-  - llvm/include/llvm/DebugInfo/**
+-  - llvm/include/llvm/Debuginfod/**
+-  - llvm/include/llvm/Frontend/Debug/**
+-  - llvm/include/llvm/IR/Debug*.*
+-  - llvm/include/llvm/Object/*Debug*.*
+-  - llvm/include/llvm/ObjectYAML/*Debug*.*
+-  - llvm/include/llvm/Transforms/Utils/*Debug*.*
+-  - llvm/include/llvm-c/DebugInfo.h
+-  - llvm/lib/BinaryFormat/Dwarf.cpp
+-  - llvm/lib/CodeGen/AsmPrinter/*Debug*.*
+-  - llvm/lib/CodeGen/AsmPrinter/Dwarf*.*
+-  - llvm/lib/CodeGen/AsmPrinter/DIE*.*
+-  - llvm/lib/CodeGen/LiveDebugValues/**
+-  - llvm/lib/CodeGen/*Debug*.*
+-  - llvm/lib/CodeGen/DwarfEHPrepare.cpp
+-  - llvm/lib/DebugInfo/**
+-  - llvm/lib/Debuginfod/**
+-  - llvm/lib/DWARFLinkerParallel/**
+-  - llvm/lib/IR/Debug*.cpp
+-  - llvm/lib/MC/MCDwarf.cpp
+-  - llvm/lib/Transforms/Utils/*Debug*.*
+-  - llvm/test/DebugInfo/**
+-  - llvm/test/tools/dsymutil/**
+-  - llvm/test/tools/llvm-debuginfo-analyzer/**
+-  - llvm/test/tools/llvm-debuginfod/**
+-  - llvm/test/tools/llvm-debuginfod-find/**
+-  - llvm/test/tools/llvm-dwarfdump/**
+-  - llvm/test/tools/llvm-dwarfutil/**
+-  - llvm/test/tools/llvm-dwp/**
+-  - llvm/test/tools/llvm-gsymutil/**
+-  - llvm/test/tools/llvm-pdbuti/**
+-  - llvm/tools/dsymutil/**
+-  - llvm/tools/llvm-debuginfo-analyzer/**
+-  - llvm/tools/llvm-debuginfod/**
+-  - llvm/tools/llvm-debuginfod-find/**
+-  - llvm/tools/llvm-dwarfdump/**
+-  - llvm/tools/llvm-dwarfutil/**
+-  - llvm/tools/llvm-dwp/**
+-  - llvm/tools/llvm-gsymutil/**
+-  - llvm/tools/llvm-pdbutil/**
+-
+-github:workflow:
+-  - .github/workflows/**
+-
+-cmake:
+-  - cmake/**
+-  - llvm/cmake/**
+-  - runtimes/**
+-
+-flang:driver:
+-  - flang/tools/flang-driver/**
+-  - flang/unittests/Frontend/**
+-  - flang/lib/FrontendTool/**
+-  - flang/lib/Frontend/**
+-  - flang/include/flang/Frontend/**
+-  - flang/include/flang/FrontendTool/**
+-  - flang/test/Driver/**
+-
+-backend:m68k:
+-  - llvm/lib/Target/M68k/**
+-  - clang/lib/Basic/Targets/M68k.*
+-  - clang/lib/CodeGen/Targets/M68k.cpp
+-  - llvm/test/CodeGen/M68k/**
+-  - llvm/test/MC/Disassembler/M68k/**
+-  - llvm/test/MC/M68k/**
+-
+-libc++:
+-  - libcxx/**
+-
+-libc++abi:
+-  - libcxxabi/**
+-
+-libunwind:
+-  - libunwind/**
+-
+-objectyaml:
+-  - llvm/include/llvm/ObjectYAML/**
+-  - llvm/lib/ObjectYAML/**
+-  - llvm/test/tools/obj2yaml/**
+-  - llvm/test/tools/yaml2obj/**
+-  - llvm/tools/obj2yaml/**
+-  - llvm/tools/yaml2obj/**
+-
+-clang:analysis:
+-  - clang/include/clang/Analysis/**
+-  - clang/lib/Analysis/**
+-
+-clang:static analyzer:
+-  - clang/include/clang/StaticAnalyzer/**
+-  - clang/lib/StaticAnalyzer/**
+-  - clang/tools/scan-build/**
+-  - clang/utils/analyzer/**
+-  - clang/docs/analyzer/**
+-
+-pgo:
+-  - llvm/lib/Transforms/Instrumentation/CGProfile.cpp
+-  - llvm/lib/Transforms/Instrumentation/ControlHeightReduction.cpp
+-  - llvm/lib/Transforms/Instrumentation/IndirectCallPromotion.cpp
+-  - llvm/lib/Transforms/Instrumentation/InstrProfiling.cpp
+-  - llvm/lib/Transforms/Instrumentation/PGO*
+-  - llvm/lib/Transforms/Instrumentation/ValueProfile*
+-  - llvm/test/Instrumentation/InstrProfiling/**
+-  - llvm/test/Transforms/PGOProfile/**
+-  - compiler-rt/lib/profile/**
+-  - compiler-rt/lib/memprof/**
+-  - compiler-rt/test/profile/**
+-  - compiler-rt/test/memprof/**
+-  - llvm/tools/llvm-profdata/**
+-  - llvm/tools/llvm-profgen/**
+-  - llvm/test/tools/llvm-profdata/**
+-  - llvm/test/tools/llvm-profgen/**
+-  - llvm/unittests/ProfileData/*
+-
+-openacc:
+-  - flang/**/OpenACC/**
+-  - flang/include/flang/Lower/OpenACC.h
+-  - flang/docs/OpenACC.md
+-  - flang/lib/Parser/openacc-parsers.cpp
+-  - flang/lib/Lower/OpenACC.cpp
+-  - llvm/**/Frontend/OpenACC/**
+-  - llvm/unittests/Frontend/OpenACCTest.cpp
+-  - mlir/test/Target/LLVMIR/openacc-llvm.mlir
+-  - mlir/**/*OpenACC/**
+-
+-flang:runtime:
+-  - flang/runtime/**
+-
+-flang:parser:
+-  - flang/**/Parser/**
+-
+-flang:semantics:
+-  - flang/**/Evaluate/**
+-  - flang/**/Semantics/**
+-
+-flang:fir-hlfir:
+-  - flang/**/Lower/**
+-  - flang/**/Optimizer/**
+-
+-flang:codegen:
+-  - flang/**/CodeGen/**
+-
+-llvm:globalisel:
+-  - llvm/**/GlobalISel/**
+-  - llvm/utils/TableGen/GlobalISel*
+-
+-function-specialization:
+-  - llvm/include/llvm/Transforms/Utils/SCCPSolver.h
+-  - llvm/lib/Transforms/Utils/SCCPSolver.cpp
+-  - llvm/include/llvm/Transforms/IPO/FunctionSpecialization.h
+-  - llvm/lib/Transforms/IPO/FunctionSpecialization.cpp
+-  - llvm/test/Transforms/FunctionSpecialization/*
+-
+-libc:
+-  - libc/**
+-  - utils/bazel/llvm-project-overlay/libc/**
+-
+-clang-format:
+-  - clang/**/Format/**
+-  - clang/tools/clang-format/**
+-
+-flang:openmp:
+-  - flang/test/**/OpenMP/**
+-  - flang/lib/Lower/OpenMP.cpp
+-  - flang/lib/Semantics/resolve-directives.cpp
+-  - flang/lib/Semantics/check-omp-structure.cpp
+-  - flang/lib/Optimizer/Transforms/OMP*
+-  - flang/test/Fir/convert-to-llvm-openmp-and-fir.fir
+-  - flang/test/Lower/OpenMP/**
+-  - flang/test/Transforms/omp*
+-  - mlir/**/*OpenMP*
+-  - mlir/test/Target/LLVMIR/openmp*
+-  - llvm/lib/Frontend/OpenMP/**
+-  - llvm/include/llvm/Frontend/OpenMP/**
+-  - llvm/unittests/Frontend/OpenMP*
+-
+-llvm:ir:
+-  - llvm/lib/IR/**
+-  - llvm/include/llvm/IR/**
+-  - llvm/docs/LangRef.rst
+-  - llvm/unittests/IR/**
+-
+-llvm:analysis:
+-  - llvm/lib/Analysis/**
+-  - llvm/include/llvm/Analysis/**
+-  - llvm/test/Analysis/**
+-  - llvm/unittests/Analysis/**
+-
+-llvm:adt:
+-  - llvm/**/ADT/*
+-
+-llvm:support:
+-  - llvm/**/Support/**
+-
+-llvm:transforms:
+-  - llvm/lib/Transforms/**
+-  - llvm/include/llvm/Transforms/**
+-  - llvm/test/Transforms/**
+-  - llvm/unittests/Transforms/**
+-
+-clangd:
+-  - clang-tools-extra/clangd/**
+-
+-hlsl:
+-  - clang/test/ParserHLSL/**
+-  - clang/test/SemaHLSL/**
+-  - clang/test/AST/HLSL/**
+-  - clang/test/CodeGenHLSL/**
+-  - clang/cmake/caches/HLSL.cmake
+-  - clang/include/clang/Basic/HLSL*.h
+-  - clang/include/clang/Sema/HLSL*.h
+-  - clang/docs/HLSL/**
+-  - clang/lib/Driver/ToolChains/HLSL*
+-  - clang/lib/Parse/ParseHLSL.cpp
+-  - clang/lib/Sema/HLSLExternalSemaSource.cpp
+-  - clang/lib/Sema/SemaHLSL.cpp
+-  - clang/lib/CodeGen/CGHLSLRuntime.*
+-  - llvm/include/llvm/Frontend/HLSL/**
+-  - llvm/lib/Frontend/HLSL/**
+-
+-llvm:SelectionDAG:
+-  - llvm/include/llvm/CodeGen/SelectionDAG*.h
+-  - llvm/include/llvm/CodeGen/SDNodeProperties.td
+-  - llvm/include/llvm/Target/TargetSelectionDAG.td
+-  - llvm/lib/CodeGen/SelectionDAG/**
+-  - llvm/utils/TableGen/CodeGenDAG*
+-  - llvm/utils/TableGen/DAGISel*
+-  - llvm/include/llvm/CodeGen/DAGCombine.h
+-  - llvm/include/llvm/CodeGen/ISDOpcodes.h
+-
+-backend:DirectX:
+-  - '**/*DirectX*'
+-  - '**/*DXIL*'
+-  - '**/*dxil*'
+-  - '**/*DirectX*/**'
+-  - '**/*DXIL*/**'
+-  - '**/*dxil*/**'
+-
+-backend:SPIR-V:
+-  - clang/lib/Driver/ToolChains/SPIRV.*
+-  - llvm/lib/Target/SPIRV/**
+-  - llvm/test/CodeGen/SPIRV/**
+-  - llvm/test/Frontend/HLSL/**
+-  - llvm/docs/SPIRVUsage.rst
+-
+-mlgo:
+-  - llvm/lib/Analysis/ML*
+-  - llvm/include/llvm/Analysis/ML*
+-  - llvm/lib/Analysis/*Runner.cpp
+-  - llvm/include/llvm/Analysis/*Runner.h
+-  - llvm/unittests/Analysis/ML*
+-  - llvm/lib/Analysis/FunctionPropertiesAnalysis.cpp
+-  - llvm/lib/Analysis/TrainingLogger.cpp
+-  - llvm/include/llvm/Analysis/FunctionPropertiesAnalysis.h
+-  - llvm/include/llvm/Analysis/Utils/TrainingLogger.h
+-  - llvm/test/Analysis/FunctionPropertiesAnalysis/*
+-  - llvm/unittests/Analysis/FunctionPropertiesAnalysisTest.cpp
+-  - llvm/test/Transforms/inline/ML/**
+-  - llvm/lib/CodeGen/ML*
+-  - llvm/unittests/CodeGen/ML*
+-  - llvm/test/CodeGen/MLRegAlloc/**
+-  - llvm/utils/mlgo-utils/*
+-
+-tools:llvm-exegesis:
+-  - llvm/tools/llvm-exegesis/**
+-  - llvm/test/tools/llvm-exegesis/**
+-  - llvm/unittests/tools/llvm-exegesis/**
+-
+-platform:windows:
+-  - lld/COFF/**
+-  - clang/lib/Driver/MSVC.cpp
+-  - clang/lib/Driver/MinGW.cpp
+-  - llvm/lib/DebugInfo/CodeView/**
+-  - llvm/lib/DebugInfo/PDB/**
+-  - llvm/lib/WindowsDriver/**
+-  - llvm/lib/Support/Windows/**
+-  - llvm/lib/BinaryFormat/COFF.cpp
+-
+-llvm:regalloc:
+-  - llvm/**/CodeGen/CalcSpillWeights*
+-  - llvm/**/CodeGen/InlineSpiller*
+-  - llvm/**/CodeGen/InterferenceCache*
+-  - llvm/**/CodeGen/LiveInterval*
+-  - llvm/**/CodeGen/LiveRange*
+-  - llvm/**/CodeGen/LiveReg*
+-  - llvm/**/CodeGen/LiveVariables*
+-  - llvm/**/CodeGen/MachineCopyPropagation*
+-  - llvm/**/CodeGen/PHIElimination*
+-  - llvm/**/CodeGen/ProcessImplicitDefs.cpp
+-  - llvm/**/CodeGen/Register*
+-  - llvm/**/CodeGen/RegUsage*
+-  - llvm/**/CodeGen/RenameIndependentSubregs.cpp
+-  - llvm/**/CodeGen/SlotIndexes.h
+-  - llvm/**/CodeGen/SpillPlacement*
+-  - llvm/**/CodeGen/SplitKit*
+-  - llvm/**/CodeGen/VirtRegMap.h
+-  - llvm/include/PBQP/**
+-  - llvm/include/PBQPRAConstraint.h
+-  - llvm/include/llvm/CodeGen/Spiller.h
+-  - llvm/**/*RegAlloc
+-
+-lldb:
+-  - lldb/**
+-
+-backend:AMDGPU:
+-  - '**/*amdgpu*'
+-  - '**/*AMDGPU*'
+-  - '**/*amdgpu*/**'
+-  - '**/*AMDGPU*/**'
+-
+-backend:RISC-V:
+-  - clang/**/*riscv*
+-  - clang/**/*RISCV*
+-  - llvm/**/*riscv*
+-  - llvm/**/*RISCV*
+-
+-lld:coff:
+-  - lld/**/COFF/**
+-  - lld/Common/**
+-
+-lld:elf:
+-  - lld/**/ELF/**
+-  - lld/Common/**
+-
+-lld:macho:
+-  - lld/**/MachO/**
+-  - lld/Common/**
+-
+-lld:wasm:
+-  - lld/**/wasm/**
+-  - lld/Common/**
+-
+-backend:ARM:
+-  - llvm/include/llvm/IR/IntrinsicsARM.td
+-  - llvm/test/MC/ARM/**
+-  - llvm/lib/Target/ARM/**
+-  - llvm/test/CodeGen/ARM/**
+-  - clang/lib/Basic/Targets/ARM*
+-  - clang/lib/Driver/ToolChains/Arch/ARM.*
+-  - clang/lib/CodeGen/Targets/ARM.cpp
+-  - clang/include/clang/Basic/BuiltinsARM*
+-  - llvm/test/MC/DisasemblerARM/**
+-
+-backend:AArch64:
+-  - llvm/include/llvm/IR/IntrinsicsAArch64.td
+-  - llvm/test/MC/AArch64/**
+-  - llvm/lib/Target/AArch64/**
+-  - llvm/test/CodeGen/AArch64/**
+-  - clang/lib/Basic/Targets/AArch64*
+-  - clang/lib/Driver/ToolChains/Arch/AArch64.*
+-  - clang/lib/CodeGen/Targets/AArch64.cpp
+-  - clang/include/clang/Basic/BuiltinsAArch64*
+-  - llvm/test/MC/Disassembler/AArch64/**
+-
+-backend:loongarch:
+-  - llvm/include/llvm/IR/IntrinsicsLoongArch.td
+-  - llvm/test/MC/LoongArch/**
+-  - llvm/lib/Target/LoongArch/**
+-  - llvm/test/CodeGen/LoongArch/**
+-  - clang/lib/Basic/Targets/LoongArch*
+-  - clang/lib/Driver/ToolChains/Arch/LoongArch.*
+-  - clang/lib/CodeGen/Targets/LoongArch.cpp
+-  - clang/include/clang/Basic/BuiltinsLoongArch*
+-
+-backend:MSP430:
+-  - llvm/include/llvm/IR/IntrinsicsMSP430.td
+-  - llvm/test/MC/MSP430/**
+-  - llvm/lib/Target/MSP430/**
+-  - llvm/test/CodeGen/MSP430/**
+-  - clang/lib/Basic/Targets/MSP430*
+-  - clang/lib/Driver/ToolChains/Arch/MSP430.*
+-  - clang/lib/CodeGen/Targets/MSP430.cpp
+-  - clang/include/clang/Basic/BuiltinsMSP430*
+-  - llvm/test/MC/Disassembler/MSP430/**
+-
+-backend:Sparc:
+-  - llvm/include/llvm/IR/IntrinsicsSparc.td
+-  - llvm/test/MC/Sparc/**
+-  - llvm/lib/Target/Sparc/**
+-  - llvm/test/CodeGen/Sparc/**
+-  - clang/lib/Basic/Targets/Sparc*
+-  - clang/lib/Driver/ToolChains/Arch/Sparc.*
+-  - clang/lib/CodeGen/Targets/Sparc.cpp
+-  - clang/include/clang/Basic/BuiltinsSparc*
+-  - llvm/test/MC/Disassembler/Sparc/**
+-
+-backend:WebAssembly:
+-  - llvm/lib/Target/WebAssembly/**
+-  - llvm/test/CodeGen/WebAssembly/**
+-  - clang/lib/Basic/Targets/WebAssembly*
+-  - clang/include/clang/Basic/BuiltinsWebAssembly.def
+-  - clang/include/clang/Basic/WebAssemblyReferenceTypes.def
+-  - clang/lib/CodeGen/Targets/WebAssembly*
+-  - llvm/include/llvm/IR/IntinsicsWebAssembly.td
+-  - llvm/include/llvm/Object/Wasm*
+-  - llvm/lib/CodeGen/AsmPrinter/Wasm*
+-  - llvm/lib/CodeGen/Wasm*
+-  - llvm/lib/MC/MCParser/Wasm*
+-  - llvm/lib/MC/Wasm*
+-  - llvm/lib/ObjCopy/wasm/**
+-  - llvm/lib/Object/Wasm*
+-  - clang/lib/Driver/Toolchains/WebAssembly*
+-  - clang/lib/Headers/wasm_simd128.h
+-  - clang/test/CodeGen/WebAssembly/**
+-  - clang/test/SemaCXX/*wasm*
+-  - clang/test/Sema/*wasm*
+-  - llvm/include/llvm/BinaryFormat/Wasm.h
+-  - llvm/unittests/Target/WebAssembly/**
+-  - llvm/test/DebugInfo/WebAssembly/**
+-  - llvm/test/MC/WebAssembly/**
+-
+-backend:X86:
+-  - llvm/include/llvm/IR/IntrinsicsX86.td
+-  - llvm/lib/Target/X86/**
+-  - llvm/test/CodeGen/X86/**
+-  - llvm/test/MC/X86/**
+-  - llvm/test/MC/Disassembler/X86/**
+-  - llvm/test/Analysis/CostModel/X86/**
+-  - llvm/test/tools/llvm-mca/X86/**
+-  - clang/lib/Basic/Targets/X86/**
+-  - clang/lib/Driver/ToolChains/Arch/X86.*
+-  - clang/lib/CodeGen/Targets/X86.*
+-  - clang/lib/Headers/**
+-  - clang/test/CodeGen/X86/**
+-  - clang/include/clang/Basic/BuiltinsX86*
+-  - llvm/include/llvm/Support/X86DisassemblerDecoderCommon.h
+-  - llvm/include/llvm/TargetParser/X86*
+-  - llvm/lib/TargetParser/X86*
+-  - llvm/utils/TableGen/X86*
+-
+-third-party:unittests:
+-  - third-party/unittests/**
+-
+-llvm:binary-utilities:
+-  - llvm/docs/CommandGuide/llvm-*
+-  - llvm/include/llvm/BinaryFormat/**
+-  - llvm/include/llvm/DebugInfo/Symbolize/**
+-  - llvm/include/llvm/ObjCopy/**
+-  - llvm/include/llvm/Object/**
+-  - llvm/lib/BinaryFormat/**
+-  - llvm/lib/DebugInfo/Symbolize/**
+-  - llvm/lib/ObjCopy/**
+-  - llvm/lib/Object/**
+-  - llvm/test/Object/**
+-  - llvm/test/tools/llvm-ar/**
+-  - llvm/test/tools/llvm-cxxfilt/**
+-  - llvm/test/tools/llvm-nm/**
+-  - llvm/test/tools/llvm-objcopy/**
+-  - llvm/test/tools/llvm-objdump/**
+-  - llvm/test/tools/llvm-readobj/**
+-  - llvm/test/tools/llvm-size/**
+-  - llvm/test/tools/llvm-strings/**
+-  - llvm/test/tools/llvm-symbolizer/**
+-  - llvm/tools/llvm-ar/**
+-  - llvm/tools/llvm-cxxfilt/**
+-  - llvm/tools/llvm-nm/**
+-  - llvm/tools/llvm-objcopy/**
+-  - llvm/tools/llvm-objdump/**
+-  - llvm/tools/llvm-readobj/**
+-  - llvm/tools/llvm-size/**
+-  - llvm/tools/llvm-strings/**
+-  - llvm/tools/llvm-symbolizer/**
+-
+-clang:openmp:
+-  - clang/include/clang/Basic/OpenMP*
+-  - clang/include/clang/AST/OpenMPClause.h
+-  - clang/include/clang/AST/DeclOpenMP.h
+-  - clang/include/clang/AST/ExprOpenMP.h
+-  - clang/include/clang/AST/StmtOpenMP.h
+-  - clang/lib/AST/DeclOpenMP.cpp
+-  - clang/lib/AST/OpenMPClause.cpp
+-  - clang/lib/AST/StmtOpenMP.cpp
+-  - clang/lib/Headers/openmp_wrappers/**
+-  - clang/lib/Parse/ParseOpenMP.cpp
+-  - clang/lib/Basic/OpenMPKinds.cpp
+-  - clang/lib/Driver/ToolChains/AMDGPUOpenMP.cpp
+-  - clang/lib/Driver/ToolChains/AMDGPUOpenMP.h
+-  - clang/lib/CodeGen/CgStmtOpenMP.cpp
+-  - clang/lib/CodeGen/CGOpenMP*
+-  - clang/lib/Sema/SemaOpenMP.cpp
+-  - clang/test/OpenMP/**
+-  - clang/test/AST/ast-dump-openmp-*
+-  - llvm/lib/Frontend/OpenMP/**
+-  - llvm/lib/Transforms/IPO/OpenMPOpt.cpp
+-  - llvm/include/llvm/Frontend/OpenMP/**
+-  - llvm/include/llvm/Transforms/IPO/OpenMPOpt.h
+-  - llvm/unittests/Frontend/OpenMP*
+-  - llvm/test/Transforms/OpenMP/**
+-
+-openmp:libomp:
+-  - any: ['openmp/**', '!openmp/libomptarget/**']
+-
+-openmp:libomptarget:
+-  - any: ['openmp/**', '!openmp/runtime/**']
+diff --git a/.github/workflows/README.md b/.github/workflows/README.md
+deleted file mode 100644
+index ce34d2337e9c..000000000000
+--- a/.github/workflows/README.md
++++ /dev/null
+@@ -1 +0,0 @@
+-Github action workflows should be stored in this directory.
+diff --git a/.github/workflows/build-ci-container.yml b/.github/workflows/build-ci-container.yml
+deleted file mode 100644
+index ad3d50d4d578..000000000000
+--- a/.github/workflows/build-ci-container.yml
++++ /dev/null
+@@ -1,60 +0,0 @@
+-
+-name: Build CI Container
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  push:
+-    branches:
+-      - main
+-    paths:
+-      - .github/workflows/build-ci-container.yml
+-      - '.github/workflows/containers/github-action-ci/**'
+-  pull_request:
+-    branches:
+-      - main
+-    paths:
+-      - .github/workflows/build-ci-container.yml
+-      - '.github/workflows/containers/github-action-ci/**'
+-
+-jobs:
+-  build-ci-container:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    permissions:
+-      packages: write
+-    steps:
+-      - name: Write Variables
+-        id: vars
+-        run: |
+-          tag=`date +%s`
+-          container_name="ghcr.io/$GITHUB_REPOSITORY_OWNER/ci-ubuntu-22.04"
+-          echo "container-name=$container_name" >> $GITHUB_OUTPUT
+-          echo "container-name-tag=$container_name:$tag" >> $GITHUB_OUTPUT
+-
+-      - name: Checkout LLVM
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: .github/workflows/containers/github-action-ci/
+-
+-      - name: Build Container
+-        working-directory: ./.github/workflows/containers/github-action-ci/
+-        run: |
+-          podman build -t ${{ steps.vars.outputs.container-name-tag }} .
+-          podman tag ${{ steps.vars.outputs.container-name-tag }} ${{ steps.vars.outputs.container-name }}:latest
+-
+-      - name: Test Container
+-        run: |
+-          for image in ${{ steps.vars.outputs.container-name-tag }} ${{  steps.vars.outputs.container-name }}; do
+-            podman run --rm -it $image /usr/bin/bash -x -c 'printf '\''#include <iostream>\nint main(int argc, char **argv) { std::cout << "Hello\\n"; }'\'' | clang++ -x c++ - && ./a.out | grep Hello'
+-          done
+-
+-      - name: Push Container
+-        if: github.event_name == 'push'
+-        env:
+-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+-        run: |
+-          podman login -u ${{ github.actor }} -p $GITHUB_TOKEN ghcr.io
+-          podman push ${{ steps.vars.outputs.container-name-tag }}
+-          podman push ${{ steps.vars.outputs.container-name }}:latest
+diff --git a/.github/workflows/clang-tests.yml b/.github/workflows/clang-tests.yml
+deleted file mode 100644
+index 2569ce19518e..000000000000
+--- a/.github/workflows/clang-tests.yml
++++ /dev/null
+@@ -1,38 +0,0 @@
+-name: Clang Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'clang/**'
+-      - '.github/workflows/clang-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!llvm/**'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'clang/**'
+-      - '.github/workflows/clang-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!llvm/**'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  check_clang:
+-    if: github.repository_owner == 'llvm'
+-    name: Test clang,lldb,libclc
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      build_target: check-clang
+-      projects: clang;lldb;libclc
+diff --git a/.github/workflows/containers/github-action-ci/Dockerfile b/.github/workflows/containers/github-action-ci/Dockerfile
+deleted file mode 100644
+index d91a7ad3a9d0..000000000000
+--- a/.github/workflows/containers/github-action-ci/Dockerfile
++++ /dev/null
+@@ -1,48 +0,0 @@
+-FROM docker.io/library/ubuntu:22.04 as base
+-ENV LLVM_SYSROOT=/opt/llvm/
+-
+-FROM base as toolchain
+-ENV LLVM_MAJOR=17
+-ENV LLVM_VERSION=${LLVM_MAJOR}.0.6
+-ENV LLVM_DIRNAME=clang+llvm-${LLVM_VERSION}-x86_64-linux-gnu-ubuntu-22.04
+-ENV LLVM_FILENAME=${LLVM_DIRNAME}.tar.xz
+-
+-RUN apt-get update && \
+-    apt-get install -y \
+-    curl \
+-    xz-utils
+-
+-RUN mkdir -p $LLVM_SYSROOT/bin/ $LLVM_SYSROOT/lib/
+-
+-RUN curl -O -L https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/$LLVM_FILENAME
+-
+-RUN tar -C $LLVM_SYSROOT --strip-components=1 -xJf $LLVM_FILENAME \
+-    $LLVM_DIRNAME/bin/clang \
+-    $LLVM_DIRNAME/bin/clang++ \
+-    $LLVM_DIRNAME/bin/clang-cl \
+-    $LLVM_DIRNAME/bin/clang-$LLVM_MAJOR \
+-    $LLVM_DIRNAME/bin/lld \
+-    $LLVM_DIRNAME/bin/ld.lld \
+-    $LLVM_DIRNAME/lib/clang/
+-
+-
+-FROM base
+-
+-COPY --from=toolchain $LLVM_SYSROOT $LLVM_SYSROOT
+-
+-# Need to install curl for hendrikmuhs/ccache-action
+-# Need nodejs for some of the GitHub actions.
+-# Need perl-modules for clang analyzer tests.
+-RUN apt-get update && \
+-    apt-get install -y \
+-    binutils \
+-    cmake \
+-    curl \
+-    libstdc++-11-dev \
+-    ninja-build \
+-    nodejs \
+-    perl-modules \
+-    python3-psutil
+-
+-ENV LLVM_SYSROOT=$LLVM_SYSROOT
+-ENV PATH=${LLVM_SYSROOT}/bin:${PATH}
+diff --git a/.github/workflows/docs.yml b/.github/workflows/docs.yml
+deleted file mode 100644
+index 5936cdc46a90..000000000000
+--- a/.github/workflows/docs.yml
++++ /dev/null
+@@ -1,169 +0,0 @@
+-# LLVM Documentation CI
+-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+-# See https://llvm.org/LICENSE.txt for license information.
+-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+-
+-name: "Test documentation build"
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  push:
+-    branches:
+-      - 'main'
+-    paths:
+-      - 'llvm/docs/**'
+-      - 'clang/docs/**'
+-      - 'clang/include/clang/Basic/AttrDocs.td'
+-      - 'clang/include/clang/Driver/ClangOptionDocs.td'
+-      - 'clang/include/clang/Basic/DiagnosticDocs.td'
+-      - 'clang-tools-extra/docs/**'
+-      - 'lldb/docs/**'
+-      - 'libunwind/docs/**'
+-      - 'libcxx/docs/**'
+-      - 'libc/docs/**'
+-      - 'lld/docs/**'
+-      - 'openmp/docs/**'
+-      - 'polly/docs/**'
+-      - 'flang/docs/**'
+-      - 'flang/include/flang/Optimizer/Dialect/FIROps.td'
+-  pull_request:
+-    paths:
+-      - 'llvm/docs/**'
+-      - 'clang/docs/**'
+-      - 'clang/include/clang/Basic/AttrDocs.td'
+-      - 'clang/include/clang/Driver/ClangOptionDocs.td'
+-      - 'clang/include/clang/Basic/DiagnosticDocs.td'
+-      - 'clang-tools-extra/docs/**'
+-      - 'lldb/docs/**'
+-      - 'libunwind/docs/**'
+-      - 'libcxx/docs/**'
+-      - 'libc/docs/**'
+-      - 'lld/docs/**'
+-      - 'openmp/docs/**'
+-      - 'polly/docs/**'
+-      - 'flang/docs/**'
+-      - 'flang/include/flang/Optimizer/Dialect/FIROps.td'
+-
+-jobs:
+-  check-docs-build:
+-    name: "Test documentation build"
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      # Don't fetch before checking for file changes to force the file changes
+-      # action to use the Github API in pull requests. If it's a push to a
+-      # branch we can't use the Github API to get the diff, so we need to have
+-      # a local checkout beforehand.
+-      - name: Fetch LLVM sources (Push)
+-        if: ${{ github.event_name == 'push' }}
+-        uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 1
+-      - name: Get subprojects that have doc changes
+-        id: docs-changed-subprojects
+-        uses: tj-actions/changed-files@v39
+-        with:
+-          files_yaml: |
+-            llvm:
+-              - 'llvm/docs/**'
+-            clang:
+-              - 'clang/docs/**'
+-              - 'clang/include/clang/Basic/AttrDocs.td'
+-              - 'clang/include/clang/Driver/ClangOptionDocs.td'
+-              - 'clang/include/clang/Basic/DiagnosticDocs.td'
+-            clang-tools-extra:
+-              - 'clang-tools-extra/docs/**'
+-            lldb:
+-              - 'lldb/docs/**'
+-            libunwind:
+-              - 'libunwind/docs/**'
+-            libcxx:
+-              - 'libcxx/docs/**'
+-            libc:
+-              - 'libc/docs/**'
+-            lld:
+-              - 'lld/docs/**'
+-            openmp:
+-              - 'openmp/docs/**'
+-            polly:
+-              - 'polly/docs/**'
+-            flang:
+-              - 'flang/docs/**'
+-              - 'flang/include/flang/Optimizer/Dialect/FIROps.td'
+-      - name: Fetch LLVM sources (PR)
+-        if: ${{ github.event_name == 'pull_request' }}
+-        uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 1
+-      - name: Setup Python env
+-        uses: actions/setup-python@v4
+-        with:
+-          python-version: '3.11'
+-          cache: 'pip'
+-          cache-dependency-path: 'llvm/docs/requirements.txt'
+-      - name: Install python dependencies
+-        run: pip install -r llvm/docs/requirements.txt
+-      - name: Install system dependencies
+-        run: |
+-          sudo apt-get update
+-          # swig and graphviz are lldb specific dependencies
+-          sudo apt-get install -y cmake ninja-build swig graphviz
+-      - name: Build LLVM docs
+-        if: steps.docs-changed-subprojects.outputs.llvm_any_changed == 'true'
+-        run: |
+-          cmake -B llvm-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C llvm-build docs-llvm-html docs-llvm-man
+-      - name: Build Clang docs
+-        if: steps.docs-changed-subprojects.outputs.clang_any_changed == 'true'
+-        run: |
+-          cmake -B clang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C clang-build docs-clang-html docs-clang-man
+-      - name: Build clang-tools-extra docs
+-        if: steps.docs-changed-subprojects.outputs.clang-tools-extra_any_changed == 'true'
+-        run: |
+-          cmake -B clang-tools-extra-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C clang-tools-extra-build docs-clang-tools-html docs-clang-tools-man
+-      - name: Build LLDB docs
+-        if: steps.docs-changed-subprojects.outputs.lldb_any_changed == 'true'
+-        run: |
+-          cmake -B lldb-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;lldb" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C lldb-build docs-lldb-html docs-lldb-man
+-      - name: Build libunwind docs
+-        if: steps.docs-changed-subprojects.outputs.libunwind_any_changed == 'true'
+-        run: |
+-          cmake -B libunwind-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RUNTIMES="libunwind" -DLLVM_ENABLE_SPHINX=ON ./runtimes
+-          TZ=UTC ninja -C libunwind-build docs-libunwind-html
+-      - name: Build libcxx docs
+-        if: steps.docs-changed-subprojects.outputs.libcxx_any_changed == 'true'
+-        run: |
+-          cmake -B libcxx-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RUNTIMES="libcxxabi;libcxx;libunwind" -DLLVM_ENABLE_SPHINX=ON ./runtimes
+-          TZ=UTC ninja -C libcxx-build docs-libcxx-html
+-      - name: Build libc docs
+-        if: steps.docs-changed-subprojects.outputs.libc_any_changed == 'true'
+-        run: |
+-          cmake -B libc-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_RUNTIMES="libc" -DLLVM_ENABLE_SPHINX=ON ./runtimes
+-          TZ=UTC ninja -C libc-build docs-libc-html
+-      - name: Build LLD docs
+-        if: steps.docs-changed-subprojects.outputs.lld_any_changed == 'true'
+-        run: |
+-          cmake -B lld-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="lld" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C lld-build docs-lld-html
+-      - name: Build OpenMP docs
+-        if: steps.docs-changed-subprojects.outputs.openmp_any_changed == 'true'
+-        run: |
+-          cmake -B openmp-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;openmp" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C openmp-build docs-openmp-html
+-      - name: Build Polly docs
+-        if: steps.docs-changed-subprojects.outputs.polly_any_changed == 'true'
+-        run: |
+-          cmake -B polly-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="polly" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C polly-build docs-polly-html docs-polly-man
+-      - name: Build Flang docs
+-        if: steps.docs-changed-subprojects.outputs.flang_any_changed == 'true'
+-        # TODO(boomanaiden154): Remove the SPHINX_WARNINGS_AS_ERRORS from the
+-        # CMake invocation once the warnings in the flang docs build are fixed.
+-        run: |
+-          cmake -B flang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;mlir;flang" -DLLVM_ENABLE_SPHINX=ON -DSPHINX_WARNINGS_AS_ERRORS=OFF ./llvm
+-          TZ=UTC ninja -C flang-build docs-flang-html docs-flang-man
+diff --git a/.github/workflows/issue-release-workflow.yml b/.github/workflows/issue-release-workflow.yml
+deleted file mode 100644
+index b09ef6555fa9..000000000000
+--- a/.github/workflows/issue-release-workflow.yml
++++ /dev/null
+@@ -1,94 +0,0 @@
+-# This contains the workflow definitions that allow users to test backports
+-# to the release branch using comments on issues.
+-#
+-# /cherry-pick <commit> <...>
+-#
+-# This comment will attempt to cherry-pick the given commits to the latest
+-# release branch (release/Y.x) and if successful, push the result to a branch
+-# on github.
+-#
+-# /branch <owner>/<repo>/<branch>
+-#
+-# This comment will create a pull request from <branch> to the latest release
+-# branch.
+-
+-name: Issue Release Workflow
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  issue_comment:
+-    types:
+-      - created
+-      - edited
+-  issues:
+-    types:
+-      - opened
+-
+-env:
+-  COMMENT_BODY: ${{ github.event.action == 'opened' && github.event.issue.body || github.event.comment.body  }}
+-
+-jobs:
+-  backport-commits:
+-    name: Backport Commits
+-    runs-on: ubuntu-latest
+-    if: >-
+-      (github.repository == 'llvm/llvm-project') &&
+-      !startswith(github.event.comment.body, '<!--IGNORE-->') &&
+-      contains(github.event.action == 'opened' && github.event.issue.body || github.event.comment.body, '/cherry-pick')
+-    steps:
+-      - name: Fetch LLVM sources
+-        uses: actions/checkout@v4
+-        with:
+-          repository: llvm/llvm-project
+-          # GitHub stores the token used for checkout and uses it for pushes
+-          # too, but we want to use a different token for pushing, so we need
+-          # to disable persist-credentials here.
+-          persist-credentials: false
+-          fetch-depth: 0
+-
+-      - name: Setup Environment
+-        run: |
+-          pip install -r ./llvm/utils/git/requirements.txt
+-          ./llvm/utils/git/github-automation.py --token ${{ github.token }} setup-llvmbot-git
+-
+-      - name: Backport Commits
+-        run: |
+-          printf "%s" "$COMMENT_BODY" |
+-          ./llvm/utils/git/github-automation.py \
+-          --repo "$GITHUB_REPOSITORY" \
+-          --token ${{ secrets.RELEASE_WORKFLOW_PUSH_SECRET }} \
+-          release-workflow \
+-          --issue-number ${{ github.event.issue.number }} \
+-          --phab-token ${{ secrets.RELEASE_WORKFLOW_PHAB_TOKEN }} \
+-          auto
+-
+-  create-pull-request:
+-    name: Create Pull Request
+-    runs-on: ubuntu-latest
+-    if: >-
+-      (github.repository == 'llvm/llvm-project') &&
+-      !startswith(github.event.comment.body, '<!--IGNORE-->') &&
+-      contains(github.event.comment.body, '/branch ')
+-
+-    steps:
+-      - name: Fetch LLVM sources
+-        uses: actions/checkout@v4
+-        with:
+-          persist-credentials: false
+-
+-      - name: Setup Environment
+-        run: |
+-          pip install -r ./llvm/utils/git/requirements.txt
+-
+-      - name: Create Pull Request
+-        run: |
+-          printf "%s" "$COMMENT_BODY" |
+-          ./llvm/utils/git/github-automation.py \
+-          --repo "$GITHUB_REPOSITORY" \
+-          --token ${{ secrets.RELEASE_WORKFLOW_PUSH_SECRET }} \
+-          release-workflow \
+-          --issue-number ${{ github.event.issue.number }} \
+-          --phab-token ${{ secrets.RELEASE_WORKFLOW_PHAB_TOKEN }} \
+-          auto
+diff --git a/.github/workflows/issue-subscriber.yml b/.github/workflows/issue-subscriber.yml
+deleted file mode 100644
+index ef6cd0674e80..000000000000
+--- a/.github/workflows/issue-subscriber.yml
++++ /dev/null
+@@ -1,37 +0,0 @@
+-name: Issue Subscriber
+-
+-on:
+-  issues:
+-    types:
+-      - labeled
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  auto-subscribe:
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      - name: Checkout Automation Script
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: llvm/utils/git/
+-          ref: main
+-
+-      - name: Setup Automation Script
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          pip install -r requirements.txt
+-
+-      - name: Update watchers
+-        working-directory: ./llvm/utils/git/
+-        # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+-        env:
+-          LABEL_NAME: ${{ github.event.label.name }}
+-        run: |
+-          python3 ./github-automation.py \
+-            --token '${{ secrets.ISSUE_SUBSCRIBER_TOKEN }}' \
+-            issue-subscriber \
+-            --issue-number '${{ github.event.issue.number }}' \
+-            --label-name "$LABEL_NAME"
+diff --git a/.github/workflows/libclang-abi-tests.yml b/.github/workflows/libclang-abi-tests.yml
+deleted file mode 100644
+index 972d21c3bced..000000000000
+--- a/.github/workflows/libclang-abi-tests.yml
++++ /dev/null
+@@ -1,168 +0,0 @@
+-name: libclang ABI Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'clang/**'
+-      - '.github/workflows/libclang-abi-tests.yml'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'clang/**'
+-      - '.github/workflows/libclang-abi-tests.yml'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  abi-dump-setup:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    outputs:
+-      BASELINE_REF: ${{ steps.vars.outputs.BASELINE_REF }}
+-      ABI_HEADERS: ${{ steps.vars.outputs.ABI_HEADERS }}
+-      ABI_LIBS: ${{ steps.vars.outputs.ABI_LIBS }}
+-      BASELINE_VERSION_MAJOR: ${{ steps.vars.outputs.BASELINE_VERSION_MAJOR }}
+-      LLVM_VERSION_MAJOR: ${{ steps.version.outputs.LLVM_VERSION_MAJOR }}
+-      LLVM_VERSION_MINOR: ${{ steps.version.outputs.LLVM_VERSION_MINOR }}
+-      LLVM_VERSION_PATCH: ${{ steps.version.outputs.LLVM_VERSION_PATCH }}
+-    steps:
+-      - name: Checkout source
+-        uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 250
+-
+-      - name: Get LLVM version
+-        id: version
+-        uses: llvm/actions/get-llvm-version@main
+-
+-      - name: Setup Variables
+-        id: vars
+-        run: |
+-          remote_repo='https://github.com/llvm/llvm-project'
+-          if [ ${{ steps.version.outputs.LLVM_VERSION_PATCH }} -eq 0 ]; then
+-            major_version=$(( ${{ steps.version.outputs.LLVM_VERSION_MAJOR }} - 1))
+-            baseline_ref="llvmorg-$major_version.1.0"
+-
+-            # If there is a minor release, we want to use that as the base line.
+-            minor_ref=$(git ls-remote --refs -t "$remote_repo" llvmorg-"$major_version".[1-9].[0-9] | tail -n1 | grep -o 'llvmorg-.\+' || true)
+-            if [ -n "$minor_ref" ]; then
+-               baseline_ref="$minor_ref"
+-            else
+-              # Check if we have a release candidate
+-              rc_ref=$(git ls-remote --refs -t "$remote_repo" llvmorg-"$major_version".[1-9].[0-9]-rc* | tail -n1 | grep -o 'llvmorg-.\+' || true)
+-              if [ -n "$rc_ref" ]; then
+-                baseline_ref="$rc_ref"
+-              fi
+-            fi
+-            {
+-              echo "BASELINE_VERSION_MAJOR=$major_version"
+-              echo "BASELINE_REF=$baseline_ref"
+-              echo "ABI_HEADERS=clang-c"
+-              echo "ABI_LIBS=libclang.so"
+-            } >> "$GITHUB_OUTPUT"
+-          else
+-            {
+-              echo "BASELINE_VERSION_MAJOR=${{ steps.version.outputs.LLVM_VERSION_MAJOR }}"
+-              echo "BASELINE_REF=llvmorg-${{ steps.version.outputs.LLVM_VERSION_MAJOR }}.1.0"
+-              echo "ABI_HEADERS=."
+-              echo "ABI_LIBS=libclang.so libclang-cpp.so"
+-            } >> "$GITHUB_OUTPUT"
+-          fi
+-
+-  abi-dump:
+-    if: github.repository_owner == 'llvm'
+-    needs: abi-dump-setup
+-    runs-on: ubuntu-latest
+-    strategy:
+-      matrix:
+-        name:
+-          - build-baseline
+-          - build-latest
+-        include:
+-          - name: build-baseline
+-            llvm_version_major: ${{ needs.abi-dump-setup.outputs.BASELINE_VERSION_MAJOR }}
+-            ref: ${{ needs.abi-dump-setup.outputs.BASELINE_REF }}
+-            repo: llvm/llvm-project
+-          - name: build-latest
+-            llvm_version_major: ${{ needs.abi-dump-setup.outputs.LLVM_VERSION_MAJOR }}
+-            ref: ${{ github.sha }}
+-            repo: ${{ github.repository }}
+-    steps:
+-      - name: Install Ninja
+-        uses: llvm/actions/install-ninja@main
+-      - name: Install abi-compliance-checker
+-        run: |
+-          sudo apt-get install abi-dumper autoconf pkg-config
+-      - name: Install universal-ctags
+-        run: |
+-          git clone https://github.com/universal-ctags/ctags.git
+-          cd ctags
+-          ./autogen.sh
+-          ./configure
+-          sudo make install
+-      - name: Download source code
+-        uses: llvm/actions/get-llvm-project-src@main
+-        with:
+-          ref: ${{ matrix.ref }}
+-          repo: ${{ matrix.repo }}
+-      - name: Configure
+-        run: |
+-          mkdir install
+-          cmake -B build -S llvm -G Ninja -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="" -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON -DCMAKE_C_FLAGS_DEBUG="-g1 -Og" -DCMAKE_CXX_FLAGS_DEBUG="-g1 -Og" -DCMAKE_INSTALL_PREFIX="$(pwd)"/install llvm
+-      - name: Build
+-        run: ninja -C build/ ${{ needs.abi-dump-setup.outputs.ABI_LIBS }} install-clang-headers
+-      - name: Dump ABI
+-        run: |
+-          parallel abi-dumper -lver ${{ matrix.ref }} -skip-cxx -public-headers ./install/include/${{ needs.abi-dump-setup.outputs.ABI_HEADERS }} -o {}-${{ matrix.ref }}.abi ./build/lib/{} ::: ${{ needs.abi-dump-setup.outputs.ABI_LIBS }}
+-          for lib in ${{ needs.abi-dump-setup.outputs.ABI_LIBS }}; do
+-            # Remove symbol versioning from dumps, so we can compare across major versions.
+-            sed -i 's/LLVM_[0-9]\+/LLVM_NOVERSION/' $lib-${{ matrix.ref }}.abi
+-          done
+-      - name: Upload ABI file
+-        uses: actions/upload-artifact@v3
+-        with:
+-          name: ${{ matrix.name }}
+-          path: '*${{ matrix.ref }}.abi'
+-
+-  abi-compare:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    needs:
+-      - abi-dump-setup
+-      - abi-dump
+-    steps:
+-      - name: Download baseline
+-        uses: actions/download-artifact@v3
+-        with:
+-          name: build-baseline
+-          path: build-baseline
+-      - name: Download latest
+-        uses: actions/download-artifact@v3
+-        with:
+-          name: build-latest
+-          path: build-latest
+-
+-      - name: Install abi-compliance-checker
+-        run: sudo apt-get install abi-compliance-checker
+-      - name: Compare ABI
+-        run: |
+-          for lib in ${{ needs.abi-dump-setup.outputs.ABI_LIBS }}; do
+-            abi-compliance-checker -lib $lib -old build-baseline/$lib*.abi -new build-latest/$lib*.abi
+-          done
+-      - name: Upload ABI Comparison
+-        if: always()
+-        uses: actions/upload-artifact@v3
+-        with:
+-          name: compat-report-${{ github.sha }}
+-          path: compat_reports/
+diff --git a/.github/workflows/libclang-python-tests.yml b/.github/workflows/libclang-python-tests.yml
+deleted file mode 100644
+index 497f6ca5c554..000000000000
+--- a/.github/workflows/libclang-python-tests.yml
++++ /dev/null
+@@ -1,47 +0,0 @@
+-name: Libclang Python Binding Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'main'
+-    paths:
+-      - 'clang/bindings/python/**'
+-      - 'clang/tools/libclang/**'
+-      - 'clang/CMakeList.txt'
+-      - '.github/workflows/libclang-python-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-  pull_request:
+-    paths:
+-      - 'clang/bindings/python/**'
+-      - 'clang/tools/libclang/**'
+-      - 'clang/CMakeList.txt'
+-      - '.github/workflows/libclang-python-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  check-clang-python:
+-    # Build libclang and then run the libclang Python binding's unit tests.
+-    name: Build and run Python unit tests
+-    if: github.repository == 'llvm/llvm-project'
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        python-version: ["3.7", "3.11"]
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      build_target: check-clang-python
+-      projects: clang
+-      # There is an issue running on "windows-2019".
+-      # See https://github.com/llvm/llvm-project/issues/76601#issuecomment-1873049082.
+-      os_list: '["ubuntu-latest"]'
+-      python_version: ${{ matrix.python-version }}
+diff --git a/.github/workflows/libclc-tests.yml b/.github/workflows/libclc-tests.yml
+deleted file mode 100644
+index 23192f776a98..000000000000
+--- a/.github/workflows/libclc-tests.yml
++++ /dev/null
+@@ -1,39 +0,0 @@
+-name: libclc Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'libclc/**'
+-      - '.github/workflows/libclc-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!clang/**'
+-      - '!llvm/**'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'libclc/**'
+-      - '.github/workflows/libclc-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!clang/**'
+-      - '!llvm/**'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  check_libclc:
+-    if: github.repository_owner == 'llvm'
+-    name: Test libclc
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      projects: clang;libclc
+diff --git a/.github/workflows/libcxx-build-and-test.yaml b/.github/workflows/libcxx-build-and-test.yaml
+deleted file mode 100644
+index 5727b956dc6d..000000000000
+--- a/.github/workflows/libcxx-build-and-test.yaml
++++ /dev/null
+@@ -1,201 +0,0 @@
+-# This file defines pre-commit CI for libc++, libc++abi, and libunwind (on Github).
+-#
+-# We split the configurations in multiple stages with the intent of saving compute time
+-# when a job fails early in the pipeline. This is why the jobs are marked as `continue-on-error: false`.
+-# We try to run the CI configurations with the most signal in the first stage.
+-#
+-# Stages 1 & 2 are meant to be "smoke tests", and are meant to catch most build/test failures quickly and without using
+-# too many resources.
+-# Stage 3 is "everything else", and is meant to catch breakages on more niche or unique configurations.
+-#
+-# Therefore, we "fail-fast" for any failures during stages 1 & 2, meaning any job failing cancels all other running jobs,
+-# under the assumption that if the "smoke tests" fail, then the other configurations will likely fail in the same way.
+-# However, stage 3 does not fail fast, as it's more likely that any one job failing is a flake or a configuration-specific
+-#
+-name: Build and Test libc++
+-on:
+-  pull_request:
+-    paths:
+-      - 'libcxx/**'
+-      - 'libcxxabi/**'
+-      - 'libunwind/**'
+-      - 'runtimes/**'
+-      - 'cmake/**'
+-      - '.github/workflows/libcxx-build-and-test.yaml'
+-  schedule:
+-    # Run nightly at 08:00 UTC (aka 00:00 Pacific, aka 03:00 Eastern)
+-    - cron: '0 8 * * *'
+-
+-permissions:
+-  contents: read # Default everything to read-only
+-
+-concurrency:
+-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+-  cancel-in-progress: true
+-
+-
+-env:
+-  # LLVM POST-BRANCH bump version
+-  # LLVM POST-BRANCH add compiler test for ToT - 1, e.g. "Clang 17"
+-  # LLVM RELEASE bump remove compiler ToT - 3, e.g. "Clang 15"
+-  LLVM_HEAD_VERSION: "18"   # Used compiler, update POST-BRANCH.
+-  LLVM_PREVIOUS_VERSION: "17"
+-  LLVM_OLDEST_VERSION: "16"
+-  GCC_STABLE_VERSION: "13"
+-  LLVM_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer-18"
+-  CLANG_CRASH_DIAGNOSTICS_DIR: "crash_diagnostics"
+-
+-
+-jobs:
+-  stage1:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: libcxx-runners-8-set
+-    continue-on-error: false
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        config: [
+-          'generic-cxx03',
+-          'generic-cxx26',
+-          'generic-modules'
+-        ]
+-        cc: [  'clang-18' ]
+-        cxx: [ 'clang++-18' ]
+-        clang_tidy: [ 'ON' ]
+-        include:
+-          - config: 'generic-gcc'
+-            cc: 'gcc-13'
+-            cxx: 'g++-13'
+-            clang_tidy: 'OFF'
+-    steps:
+-      - uses: actions/checkout@v4
+-      - name: ${{ matrix.config }}.${{ matrix.cxx }}
+-        run: libcxx/utils/ci/run-buildbot ${{ matrix.config }}
+-        env:
+-          CC: ${{ matrix.cc }}
+-          CXX: ${{ matrix.cxx }}
+-          ENABLE_CLANG_TIDY: ${{ matrix.clang_tidy }}
+-      - uses: actions/upload-artifact@v3
+-        if: always()
+-        with:
+-          name: ${{ matrix.config }}-${{ matrix.cxx }}-results
+-          path: |
+-            **/test-results.xml
+-            **/*.abilist
+-            **/CMakeError.log
+-            **/CMakeOutput.log
+-            **/crash_diagnostics/*
+-  stage2:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: libcxx-runners-8-set
+-    needs: [ stage1 ]
+-    continue-on-error: false
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        config: [
+-          'generic-cxx11',
+-          'generic-cxx14',
+-          'generic-cxx17',
+-          'generic-cxx20',
+-          'generic-cxx23'
+-        ]
+-        cc: [ 'clang-18' ]
+-        cxx: [ 'clang++-18' ]
+-        clang_tidy: [ 'ON' ]
+-        include:
+-          - config: 'generic-gcc-cxx11'
+-            cc: 'gcc-13'
+-            cxx: 'g++-13'
+-            clang_tidy: 'OFF'
+-          - config: 'generic-cxx23'
+-            cc: 'clang-16'
+-            cxx: 'clang++-16'
+-            clang_tidy: 'OFF'
+-          - config: 'generic-cxx23'
+-            cc: 'clang-17'
+-            cxx: 'clang++-17'
+-            clang_tidy: 'OFF'
+-    steps:
+-      - uses: actions/checkout@v4
+-      - name: ${{ matrix.config }}
+-        run: libcxx/utils/ci/run-buildbot ${{ matrix.config }}
+-        env:
+-          CC: ${{ matrix.cc }}
+-          CXX: ${{ matrix.cxx }}
+-          ENABLE_CLANG_TIDY: ${{ matrix.clang_tidy }}
+-      - uses: actions/upload-artifact@v3
+-        if: always()  # Upload artifacts even if the build or test suite fails
+-        with:
+-          name: ${{ matrix.config }}-results
+-          path: |
+-            **/test-results.xml
+-            **/*.abilist
+-            **/CMakeError.log
+-            **/CMakeOutput.log
+-            **/crash_diagnostics/*
+-  stage3:
+-    if: github.repository_owner == 'llvm'
+-    needs: [ stage1, stage2 ]
+-    continue-on-error: false
+-    strategy:
+-      fail-fast: false
+-      max-parallel: 8
+-      matrix:
+-        config: [
+-          'generic-abi-unstable',
+-          'generic-hardening-mode-debug',
+-          'generic-hardening-mode-extensive',
+-          'generic-hardening-mode-fast',
+-          'generic-hardening-mode-fast-with-abi-breaks',
+-          'generic-merged',
+-          'generic-modules-lsv',
+-          'generic-no-exceptions',
+-          'generic-no-experimental',
+-          'generic-no-filesystem',
+-          'generic-no-localization',
+-          'generic-no-random_device',
+-          'generic-no-threads',
+-          'generic-no-tzdb',
+-          'generic-no-unicode',
+-          'generic-no-wide-characters',
+-          'generic-no-rtti',
+-          'generic-optimized-speed',
+-          'generic-static',
+-          # TODO Find a better place for the benchmark and bootstrapping builds to live. They're either very expensive
+-          # or don't provide much value since the benchmark run results are too noise on the bots.
+-          'benchmarks',
+-          'bootstrapping-build'
+-        ]
+-        machine: [ 'libcxx-runners-8-set' ]
+-        include:
+-        - config: 'generic-cxx26'
+-          machine: libcxx-runners-8-set
+-        - config: 'generic-asan'
+-          machine: libcxx-runners-8-set
+-        - config: 'generic-tsan'
+-          machine: libcxx-runners-8-set
+-        - config: 'generic-ubsan'
+-          machine: libcxx-runners-8-set
+-        # Use a larger machine for MSAN to avoid timeout and memory allocation issues.
+-        - config: 'generic-msan'
+-          machine: libcxx-runners-8-set
+-    runs-on: ${{ matrix.machine }}
+-    steps:
+-      - uses: actions/checkout@v4
+-      - name: ${{ matrix.config }}
+-        run: libcxx/utils/ci/run-buildbot ${{ matrix.config }}
+-        env:
+-          CC: clang-18
+-          CXX: clang++-18
+-          ENABLE_CLANG_TIDY: "OFF"
+-      - uses: actions/upload-artifact@v3
+-        if: always()
+-        with:
+-          name: ${{ matrix.config }}-results
+-          path: |
+-            **/test-results.xml
+-            **/*.abilist
+-            **/CMakeError.log
+-            **/CMakeOutput.log
+-            **/crash_diagnostics/*
+diff --git a/.github/workflows/libcxx-check-generated-files.yml b/.github/workflows/libcxx-check-generated-files.yml
+deleted file mode 100644
+index 570055624b2a..000000000000
+--- a/.github/workflows/libcxx-check-generated-files.yml
++++ /dev/null
+@@ -1,24 +0,0 @@
+-name: "Check libc++ generated files"
+-on:
+-  pull_request:
+-    paths:
+-      - 'libcxx/**'
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  check_generated_files:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - name: Fetch LLVM sources
+-        uses: actions/checkout@v4
+-
+-      - name: Install dependencies
+-        uses: aminya/setup-cpp@v1
+-        with:
+-          clangformat: 17.0.1
+-          ninja: true
+-
+-      - name: Check generated files
+-        run: libcxx/utils/ci/run-buildbot check-generated-output
+diff --git a/.github/workflows/lld-tests.yml b/.github/workflows/lld-tests.yml
+deleted file mode 100644
+index 599c0975fa68..000000000000
+--- a/.github/workflows/lld-tests.yml
++++ /dev/null
+@@ -1,38 +0,0 @@
+-name: LLD Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'lld/**'
+-      - '.github/workflows/lld-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!llvm/**'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'lld/**'
+-      - '.github/workflows/lld-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!llvm/**'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  check_lld:
+-    if: github.repository_owner == 'llvm'
+-    name: Test lld
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      build_target: check-lld
+-      projects: lld
+diff --git a/.github/workflows/lldb-tests.yml b/.github/workflows/lldb-tests.yml
+deleted file mode 100644
+index 6bb972195625..000000000000
+--- a/.github/workflows/lldb-tests.yml
++++ /dev/null
+@@ -1,39 +0,0 @@
+-name: lldb Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'lldb/**'
+-      - '.github/workflows/lldb-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!clang/**'
+-      - '!llvm/**'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'lldb/**'
+-      - '.github/workflows/lldb-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '!clang/**'
+-      - '!llvm/**'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  build_lldb:
+-    if: github.repository_owner == 'llvm'
+-    name: Build lldb
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      projects: clang;lldb
+diff --git a/.github/workflows/llvm-bugs.yml b/.github/workflows/llvm-bugs.yml
+deleted file mode 100644
+index f592dd6ccd90..000000000000
+--- a/.github/workflows/llvm-bugs.yml
++++ /dev/null
+@@ -1,63 +0,0 @@
+-name: LLVM Bugs notifier
+-
+-permissions:
+-  contents: read
+-  issues: read
+-
+-on:
+-  issues:
+-    types:
+-      - opened
+-
+-jobs:
+-  auto-subscribe:
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      - uses: actions/setup-node@v3
+-        with:
+-          node-version: 18
+-          check-latest: true
+-      - run: npm install mailgun.js form-data
+-      - name: Send notification
+-        uses: actions/github-script@v6
+-        env:
+-          MAILGUN_API_KEY: ${{ secrets.LLVM_BUGS_KEY }}
+-        with:
+-          script: |
+-            const Mailgun = require('mailgun.js');
+-            const formData = require('form-data');
+-
+-            const mailgun = new Mailgun(formData);
+-            const DOMAIN = 'email.llvm.org';
+-
+-            const mg = mailgun.client({ username: 'api', key: process.env.MAILGUN_API_KEY });
+-
+-            github.rest.issues.get({
+-              issue_number: context.issue.number,
+-              owner: context.repo.owner,
+-              repo: context.repo.repo
+-            })
+-            .then((issue) => {
+-              const payload = {
+-                author : issue.data.user.login,
+-                issue  : issue.data.number,
+-                title  : issue.data.title,
+-                url    : issue.data.html_url,
+-                labels : issue.data.labels.map((label) => label.name),
+-                assignee : issue.data.assignees.map((assignee) => assignee.login),
+-                body   : issue.data.body
+-              };
+-
+-              const data = {
+-                from: 'LLVM Bugs <llvm-bugs@email.llvm.org>',
+-                to: 'llvm-bugs@lists.llvm.org',
+-                subject: `[Bug ${issue.data.number}] ${issue.data.title}`,
+-                template: 'new-github-issue',
+-                'o:tracking-clicks': 'no',
+-                'h:X-Mailgun-Variables': JSON.stringify(payload)
+-              };
+-
+-              return mg.messages.create(DOMAIN, data);
+-            })
+-            .then((msg) => console.log(msg));
+diff --git a/.github/workflows/llvm-project-tests.yml b/.github/workflows/llvm-project-tests.yml
+deleted file mode 100644
+index a52dd2db8035..000000000000
+--- a/.github/workflows/llvm-project-tests.yml
++++ /dev/null
+@@ -1,149 +0,0 @@
+-name: LLVM Project Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      build_target:
+-        required: false
+-      projects:
+-        required: false
+-      extra_cmake_args:
+-        required: false
+-      os_list:
+-        required: false
+-        default: '["ubuntu-latest", "windows-2019", "macOS-13"]'
+-      python_version:
+-        required: false
+-        type: string
+-        default: '3.11'
+-  workflow_call:
+-    inputs:
+-      build_target:
+-        required: false
+-        type: string
+-        default: "all"
+-
+-      projects:
+-        required: true
+-        type: string
+-
+-      extra_cmake_args:
+-        required: false
+-        type: string
+-
+-      os_list:
+-        required: false
+-        type: string
+-        # Use windows-2019 due to:
+-        # https://developercommunity.visualstudio.com/t/Prev-Issue---with-__assume-isnan-/1597317
+-        default: '["ubuntu-latest", "windows-2019", "macOS-13"]'
+-
+-      python_version:
+-        required: false
+-        type: string
+-        default: '3.11'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  # If the group name here is the same as the group name in the workflow that includes
+-  # this one, then the action will try to wait on itself and get stuck.
+-  group: llvm-project-${{ github.workflow }}-${{ inputs.projects }}${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  lit-tests:
+-    name: Lit Tests
+-    runs-on: ${{ matrix.os }}
+-    container:
+-      image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
+-      volumes:
+-        - /mnt/:/mnt/
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        os: ${{ fromJSON(inputs.os_list) }}
+-    steps:
+-      - name: Setup Windows
+-        if: startsWith(matrix.os, 'windows')
+-        uses: llvm/actions/setup-windows@main
+-        with:
+-          arch: amd64
+-      # On Windows, starting with win19/20220814.1, cmake choose the 32-bit
+-      # python3.10.6 libraries instead of the 64-bit libraries when building
+-      # lldb.  Using this setup-python action to make 3.10 the default
+-      # python fixes this.
+-      - name: Setup Python
+-        uses: actions/setup-python@v4
+-        with:
+-          python-version: ${{ inputs.python_version }}
+-      - name: Install Ninja
+-        if: runner.os != 'Linux'
+-        uses: llvm/actions/install-ninja@main
+-      # actions/checkout deletes any existing files in the new git directory,
+-      # so this needs to either run before ccache-action or it has to use
+-      # clean: false.
+-      - uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 250
+-      - name: Setup ccache
+-        uses: hendrikmuhs/ccache-action@v1
+-        with:
+-          # A full build of llvm, clang, lld, and lldb takes about 250MB
+-          # of ccache space. There's not much reason to have more than this,
+-          # because we usually won't need to save cache entries from older
+-          # builds.  Also, there is an overall 10GB cache limit, and each
+-          # run creates a new cache entry so we want to ensure that we have
+-          # enough cache space for all the tests to run at once and still
+-          # fit under the 10 GB limit.
+-          # Default to 2G to workaround: https://github.com/hendrikmuhs/ccache-action/issues/174
+-          max-size: 2G
+-          key: ${{ matrix.os }}
+-          variant: sccache
+-      - name: Build and Test
+-        env:
+-          # Workaround for https://github.com/actions/virtual-environments/issues/5900.
+-          # This should be a no-op for non-mac OSes
+-          PKG_CONFIG_PATH: /usr/local/Homebrew/Library/Homebrew/os/mac/pkgconfig//12
+-        shell: bash
+-        id: build-llvm
+-        run: |
+-          if [ "${{ runner.os }}" == "Linux" ]; then
+-            builddir="/mnt/build/"
+-            mkdir -p $builddir
+-            extra_cmake_args="-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang"
+-          else
+-            builddir="$(pwd)"/build
+-          fi
+-          if [ "${{ runner.os }}" == "macOS" ]; then
+-            # Workaround test failure on some lld tests on MacOS
+-            # https://github.com/llvm/llvm-project/issues/81967
+-            extra_cmake_args="-DLLVM_DISABLE_ASSEMBLY_FILES=ON"
+-          fi
+-          echo "llvm-builddir=$builddir" >> "$GITHUB_OUTPUT"
+-          cmake -G Ninja \
+-                -B "$builddir" \
+-                -S llvm \
+-                -DLLVM_ENABLE_PROJECTS="${{ inputs.projects }}" \
+-                -DCMAKE_BUILD_TYPE=Release \
+-                -DLLVM_ENABLE_ASSERTIONS=ON \
+-                -DLLDB_INCLUDE_TESTS=OFF \
+-                -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+-                -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+-                $extra_cmake_args \
+-                ${{ inputs.extra_cmake_args }}
+-          ninja -C "$builddir" '${{ inputs.build_target }}'
+-
+-      - name: Build and Test libclc
+-        if: "!startsWith(matrix.os, 'windows') && contains(inputs.projects, 'libclc')"
+-        env:
+-          LLVM_BUILDDIR: ${{ steps.build-llvm.outputs.llvm-builddir }}
+-        run: |
+-          # Make sure all of LLVM libraries that llvm-config needs are built.
+-          ninja -C "$LLVM_BUILDDIR"
+-          cmake -G Ninja -S libclc -B libclc-build -DLLVM_DIR="$LLVM_BUILDDIR"/lib/cmake/llvm -DLIBCLC_TARGETS_TO_BUILD="amdgcn--;amdgcn--amdhsa;r600--;nvptx--;nvptx64--;nvptx--nvidiacl;nvptx64--nvidiacl"
+-          ninja -C libclc-build
+-          ninja -C libclc-build test
+diff --git a/.github/workflows/llvm-tests.yml b/.github/workflows/llvm-tests.yml
+deleted file mode 100644
+index 64d60bc3da45..000000000000
+--- a/.github/workflows/llvm-tests.yml
++++ /dev/null
+@@ -1,192 +0,0 @@
+-name: LLVM Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'llvm/**'
+-      - '.github/workflows/llvm-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'llvm/**'
+-      - '.github/workflows/llvm-tests.yml'
+-      - '.github/workflows/llvm-project-tests.yml'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  check-all:
+-    if: github.repository_owner == 'llvm'
+-    name: Build and Test
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      build_target: check-all
+-      projects: clang;lld;libclc;lldb
+-
+-  abi-dump-setup:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    outputs:
+-      BASELINE_REF: ${{ steps.vars.outputs.BASELINE_REF }}
+-      ABI_HEADERS: ${{ steps.vars.outputs.ABI_HEADERS }}
+-      BASELINE_VERSION_MAJOR: ${{ steps.vars.outputs.BASELINE_VERSION_MAJOR }}
+-      BASELINE_VERSION_MINOR: ${{ steps.vars.outputs.BASELINE_VERSION_MINOR }}
+-      LLVM_VERSION_MAJOR: ${{ steps.version.outputs.LLVM_VERSION_MAJOR }}
+-      LLVM_VERSION_MINOR: ${{ steps.version.outputs.LLVM_VERSION_MINOR }}
+-      LLVM_VERSION_PATCH: ${{ steps.version.outputs.LLVM_VERSION_PATCH }}
+-    steps:
+-      - name: Checkout source
+-        uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 250
+-
+-      - name: Get LLVM version
+-        id: version
+-        uses: llvm/actions/get-llvm-version@main
+-
+-      - name: Setup Variables
+-        id: vars
+-        run: |
+-          # C++ ABI:
+-          # 18.1.0 we aren't doing ABI checks.
+-          # 18.1.1 We want to check 18.1.0.
+-          # C ABI:
+-          # 18.1.0 We want to check 17.0.x
+-          # 18.1.1 We want to check 18.1.0
+-          echo "BASELINE_VERSION_MINOR=1" >> "$GITHUB_OUTPUT"
+-          if [ ${{ steps.version.outputs.LLVM_VERSION_PATCH }} -eq 0 ]; then
+-            {
+-              echo "BASELINE_VERSION_MAJOR=$(( ${{ steps.version.outputs.LLVM_VERSION_MAJOR }} - 1))"
+-              echo "ABI_HEADERS=llvm-c"
+-            } >> "$GITHUB_OUTPUT"
+-          else
+-            {
+-              echo "BASELINE_VERSION_MAJOR=${{ steps.version.outputs.LLVM_VERSION_MAJOR }}"
+-              echo "ABI_HEADERS=."
+-            } >> "$GITHUB_OUTPUT"
+-          fi
+-
+-  abi-dump:
+-    if: github.repository_owner == 'llvm'
+-    needs: abi-dump-setup
+-    runs-on: ubuntu-latest
+-    strategy:
+-      matrix:
+-        name:
+-          - build-baseline
+-          - build-latest
+-        include:
+-          - name: build-baseline
+-            llvm_version_major: ${{ needs.abi-dump-setup.outputs.BASELINE_VERSION_MAJOR }}
+-            ref: llvmorg-${{ needs.abi-dump-setup.outputs.BASELINE_VERSION_MAJOR }}.${{ needs.abi-dump-setup.outputs.BASELINE_VERSION_MINOR }}.0
+-            repo: llvm/llvm-project
+-          - name: build-latest
+-            llvm_version_major: ${{ needs.abi-dump-setup.outputs.LLVM_VERSION_MAJOR }}
+-            ref: ${{ github.sha }}
+-            repo: ${{ github.repository }}
+-    steps:
+-      - name: Install Ninja
+-        uses: llvm/actions/install-ninja@main
+-      - name: Install abi-compliance-checker
+-        run: |
+-          sudo apt-get install abi-dumper autoconf pkg-config
+-      - name: Install universal-ctags
+-        run: |
+-          git clone https://github.com/universal-ctags/ctags.git
+-          cd ctags
+-          ./autogen.sh
+-          ./configure
+-          sudo make install
+-      - name: Download source code
+-        uses: llvm/actions/get-llvm-project-src@main
+-        with:
+-          ref: ${{ matrix.ref }}
+-          repo: ${{ matrix.repo }}
+-      - name: Configure
+-        run: |
+-          mkdir install
+-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="" -DLLVM_BUILD_LLVM_DYLIB=ON -DCMAKE_C_FLAGS_DEBUG="-g1 -Og" -DCMAKE_CXX_FLAGS_DEBUG="-g1 -Og" -DCMAKE_INSTALL_PREFIX="$(pwd)"/install llvm
+-      - name: Build
+-        # Need to run install-LLVM twice to ensure the symlink is installed (this is a bug).
+-        run: |
+-          ninja -C build install-LLVM
+-          ninja -C build install-LLVM
+-          ninja -C build install-llvm-headers
+-      - name: Dump ABI
+-        run: |
+-          if [ "${{ needs.abi-dump-setup.outputs.ABI_HEADERS }}" = "llvm-c" ]; then
+-            nm ./install/lib/libLLVM.so | awk "/T _LLVM/ || /T LLVM/ { print $3 }" | sort -u | sed -e "s/^_//g" | cut -d ' ' -f 3 > llvm.symbols
+-            # Even though the -symbols-list option doesn't seem to filter out the symbols, I believe it speeds up processing, so I'm leaving it in.
+-            export EXTRA_ARGS="-symbols-list llvm.symbols"
+-          else
+-            touch llvm.symbols
+-          fi
+-          abi-dumper $EXTRA_ARGS -lver ${{ matrix.ref }} -skip-cxx -public-headers ./install/include/${{ needs.abi-dump-setup.outputs.ABI_HEADERS }} -o ${{ matrix.ref }}.abi ./install/lib/libLLVM.so
+-          # Remove symbol versioning from dumps, so we can compare across major versions.
+-          sed -i 's/LLVM_${{ matrix.llvm_version_major }}/LLVM_NOVERSION/' ${{ matrix.ref }}.abi
+-      - name: Upload ABI file
+-        uses: actions/upload-artifact@v3
+-        with:
+-          name: ${{ matrix.name }}
+-          path: ${{ matrix.ref }}.abi
+-
+-      - name: Upload symbol list file
+-        if: matrix.name == 'build-baseline'
+-        uses: actions/upload-artifact@v3
+-        with:
+-          name: symbol-list
+-          path: llvm.symbols
+-
+-  abi-compare:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    needs:
+-      - abi-dump-setup
+-      - abi-dump
+-    steps:
+-      - name: Download baseline
+-        uses: actions/download-artifact@v3
+-        with:
+-          name: build-baseline
+-          path: build-baseline
+-      - name: Download latest
+-        uses: actions/download-artifact@v3
+-        with:
+-          name: build-latest
+-          path: build-latest
+-      - name: Download symbol list
+-        uses: actions/download-artifact@v3
+-        with:
+-          name: symbol-list
+-          path: symbol-list
+-
+-      - name: Install abi-compliance-checker
+-        run: sudo apt-get install abi-compliance-checker
+-      - name: Compare ABI
+-        run: |
+-          if [ -s symbol-list/llvm.symbols ]; then
+-            # This option doesn't seem to work with the ABI dumper, so passing it here.
+-            export EXTRA_ARGS="-symbols-list symbol-list/llvm.symbols"
+-          fi
+-          # FIXME: Reading of gzip'd abi files on the GitHub runners stop
+-          # working some time in March of 2021, likely due to a change in the
+-          # runner's environment.
+-          abi-compliance-checker $EXTRA_ARGS -l libLLVM.so -old build-baseline/*.abi -new build-latest/*.abi || test "${{ needs.abi-dump-setup.outputs.ABI_HEADERS }}" = "llvm-c"
+-      - name: Upload ABI Comparison
+-        if: always()
+-        uses: actions/upload-artifact@v3
+-        with:
+-          name: compat-report-${{ github.sha }}
+-          path: compat_reports/
+diff --git a/.github/workflows/new-issues.yml b/.github/workflows/new-issues.yml
+deleted file mode 100644
+index ed15fdb9fba6..000000000000
+--- a/.github/workflows/new-issues.yml
++++ /dev/null
+@@ -1,23 +0,0 @@
+-name: Labeling new issues
+-on:
+-  issues:
+-    types: ['opened']
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  automate-issues-labels:
+-    permissions:
+-      issues: write
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      - uses: llvm/actions/issue-labeler@main
+-        with:
+-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+-          configuration-path: .github/new-issues-labeler.yml
+-          include-title: 1
+-          include-body: 0
+-          sync-labels: 0
+-          enable-versioned-regex: 0
+diff --git a/.github/workflows/new-prs.yml b/.github/workflows/new-prs.yml
+deleted file mode 100644
+index a60f82ce35d1..000000000000
+--- a/.github/workflows/new-prs.yml
++++ /dev/null
+@@ -1,75 +0,0 @@
+-name: "Labelling new pull requests"
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  # It's safe to use pull_request_target here, because we aren't checking out
+-  # code from the pull request branch.
+-  # See https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+-  pull_request_target:
+-    types:
+-      - opened
+-      - reopened
+-      - ready_for_review
+-      - synchronize
+-
+-jobs:
+-  greeter:
+-    runs-on: ubuntu-latest
+-    permissions:
+-      pull-requests: write
+-    # Only comment on PRs that have been opened for the first time, by someone
+-    # new to LLVM or to GitHub as a whole. Ideally we'd look for FIRST_TIMER
+-    # or FIRST_TIME_CONTRIBUTOR, but this does not appear to work. Instead check
+-    # that we do not have any of the other author associations.
+-    # See https://docs.github.com/en/webhooks/webhook-events-and-payloads?actionType=opened#pull_request
+-    # for all the possible values.
+-    if: >-
+-      (github.repository == 'llvm/llvm-project') &&
+-      (github.event.action == 'opened') &&
+-      (github.event.pull_request.author_association != 'COLLABORATOR') &&
+-      (github.event.pull_request.author_association != 'CONTRIBUTOR') &&
+-      (github.event.pull_request.author_association != 'MANNEQUIN') &&
+-      (github.event.pull_request.author_association != 'MEMBER') &&
+-      (github.event.pull_request.author_association != 'OWNER')
+-    steps:
+-      - name: Checkout Automation Script
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: llvm/utils/git/
+-          ref: main
+-
+-      - name: Setup Automation Script
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          pip install -r requirements.txt
+-
+-      - name: Greet Author
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          python3 ./github-automation.py \
+-            --token '${{ secrets.GITHUB_TOKEN }}' \
+-            pr-greeter \
+-            --issue-number "${{ github.event.pull_request.number }}"
+-
+-  automate-prs-labels:
+-    # Greet first so that only the author gets that notification.
+-    needs: greeter
+-    runs-on: ubuntu-latest
+-    # Ignore PRs with more than 10 commits.  Pull requests with a lot of
+-    # commits tend to be accidents usually when someone made a mistake while trying
+-    # to rebase.  We want to ignore these pull requests to avoid excessive
+-    # notifications.
+-    # always() means that even if greeter is skipped, this job will run.
+-    if: >
+-      always() && github.repository == 'llvm/llvm-project' &&
+-      github.event.pull_request.draft == false &&
+-      github.event.pull_request.commits < 10
+-    steps:
+-      - uses: actions/labeler@v4
+-        with:
+-          configuration-path: .github/new-prs-labeler.yml
+-          # workaround for https://github.com/actions/labeler/issues/112
+-          sync-labels: ''
+-          repo-token: ${{ secrets.ISSUE_SUBSCRIBER_TOKEN }}
+diff --git a/.github/workflows/pr-code-format.yml b/.github/workflows/pr-code-format.yml
+deleted file mode 100644
+index 3d0c23917bd4..000000000000
+--- a/.github/workflows/pr-code-format.yml
++++ /dev/null
+@@ -1,84 +0,0 @@
+-name: "Check code formatting"
+-on:
+-  pull_request_target:
+-    branches:
+-      - main
+-
+-permissions:
+-  pull-requests: write
+-
+-jobs:
+-  code_formatter:
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      - name: Fetch LLVM sources
+-        uses: actions/checkout@v4
+-        with:
+-          ref: ${{ github.event.pull_request.head.sha }}
+-
+-      - name: Checkout through merge base
+-        uses: rmacklin/fetch-through-merge-base@v0
+-        with:
+-          base_ref: ${{ github.event.pull_request.base.ref }}
+-          head_ref: ${{ github.event.pull_request.head.sha }}
+-          deepen_length: 500
+-
+-      - name: Get changed files
+-        id: changed-files
+-        uses: tj-actions/changed-files@v39
+-        with:
+-          separator: ","
+-          skip_initial_fetch: true
+-
+-      # We need to make sure that we aren't executing/using any code from the
+-      # PR for security reasons as we're using pull_request_target. Checkout
+-      # the target branch with the necessary files.
+-      - name: Fetch code formatting utils
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: |
+-            llvm/utils/git/requirements_formatting.txt
+-            llvm/utils/git/code-format-helper.py
+-          sparse-checkout-cone-mode: false
+-          path: code-format-tools
+-
+-      - name: "Listed files"
+-        env:
+-          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+-        run: |
+-          echo "Formatting files:"
+-          echo "$CHANGED_FILES"
+-
+-      - name: Install clang-format
+-        uses: aminya/setup-cpp@v1
+-        with:
+-          clangformat: 17.0.1
+-
+-      - name: Setup Python env
+-        uses: actions/setup-python@v4
+-        with:
+-          python-version: '3.11'
+-          cache: 'pip'
+-          cache-dependency-path: 'code-format-tools/llvm/utils/git/requirements_formatting.txt'
+-
+-      - name: Install python dependencies
+-        run: pip install -r code-format-tools/llvm/utils/git/requirements_formatting.txt
+-
+-      - name: Run code formatter
+-        env:
+-          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+-          START_REV: ${{ github.event.pull_request.base.sha }}
+-          END_REV: ${{ github.event.pull_request.head.sha }}
+-          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+-        # TODO(boomanaiden154): Once clang v18 is released, we should be able
+-        # to take advantage of the new --diff_from_common_commit option
+-        # explicitly in code-format-helper.py and not have to diff starting at
+-        # the merge base.
+-        run: |
+-          python ./code-format-tools/llvm/utils/git/code-format-helper.py \
+-            --token ${{ secrets.GITHUB_TOKEN }} \
+-            --issue-number $GITHUB_PR_NUMBER \
+-            --start-rev $(git merge-base $START_REV $END_REV) \
+-            --end-rev $END_REV \
+-            --changed-files "$CHANGED_FILES"
+diff --git a/.github/workflows/pr-request-release-note.yml b/.github/workflows/pr-request-release-note.yml
+deleted file mode 100644
+index 0fcb95f1fe29..000000000000
+--- a/.github/workflows/pr-request-release-note.yml
++++ /dev/null
+@@ -1,43 +0,0 @@
+-name: PR Request Release Note
+-
+-permissions:
+-  contents: read
+-  pull-requests: write
+-
+-on:
+-  pull_request:
+-    types:
+-      - closed
+-
+-jobs:
+-  request-release-note:
+-    if: >-
+-      github.repository_owner == 'llvm' &&
+-      startsWith(github.ref, 'refs/heads/release')
+-
+-    runs-on: ubuntu-latest
+-    steps:
+-      # We need to pull the script from the main branch, so that we ensure
+-      # we get the latest version of this script.
+-      - name: Checkout Scripts
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-        with:
+-          sparse-checkout: |
+-            llvm/utils/git/requirements.txt
+-            llvm/utils/git/github-automation.py
+-          sparse-checkout-cone-mode: false
+-
+-      - name: Install Dependencies
+-        run: |
+-          pip install -r llvm/utils/git/requirements.txt
+-
+-      - name: Request Release Note
+-        env:
+-          # We need to use an llvmbot token here, because we are mentioning a user.
+-          GITHUB_TOKEN: ${{ github.token }}
+-        run: |
+-          python3 llvm/utils/git/github-automation.py \
+-            --repo "$GITHUB_REPOSITORY" \
+-            --token "$GITHUB_TOKEN" \
+-            request-release-note \
+-            --pr-number ${{ github.event.pull_request.number}}
+diff --git a/.github/workflows/pr-subscriber.yml b/.github/workflows/pr-subscriber.yml
+deleted file mode 100644
+index 3952493bb698..000000000000
+--- a/.github/workflows/pr-subscriber.yml
++++ /dev/null
+@@ -1,34 +0,0 @@
+-name: PR Subscriber
+-
+-on:
+-  pull_request_target:
+-    types:
+-      - labeled
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  auto-subscribe:
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      - name: Checkout Automation Script
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: llvm/utils/git/
+-          ref: main
+-
+-      - name: Setup Automation Script
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          pip install -r requirements.txt
+-
+-      - name: Update watchers
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          python3 ./github-automation.py \
+-            --token '${{ secrets.ISSUE_SUBSCRIBER_TOKEN }}' \
+-            pr-subscriber \
+-            --issue-number "${{ github.event.number }}" \
+-            --label-name "${{ github.event.label.name }}"
+diff --git a/.github/workflows/release-binaries.yml b/.github/workflows/release-binaries.yml
+deleted file mode 100644
+index 02082a84d8c1..000000000000
+--- a/.github/workflows/release-binaries.yml
++++ /dev/null
+@@ -1,306 +0,0 @@
+-name: Release Binaries
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-      upload:
+-        description: 'Upload binaries to the release page'
+-        required: true
+-        default: false
+-        type: boolean
+-
+-  workflow_call:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-      upload:
+-        description: 'Upload binaries to the release page'
+-        required: true
+-        default: false
+-        type: boolean
+-  schedule:
+-    # * is a special character in YAML so you have to quote this string
+-    - cron:  '0 8 1 * *'
+-
+-permissions:
+-  contents: read # Default everything to read-only
+-
+-jobs:
+-  prepare:
+-    name: Prepare to build binaries
+-    runs-on: ubuntu-22.04
+-    if: github.repository == 'llvm/llvm-project'
+-    outputs:
+-      release-version: ${{ steps.vars.outputs.release-version }}
+-      ref: ${{ steps.vars.outputs.ref }}
+-      upload: ${{ steps.vars.outputs.upload }}
+-
+-    steps:
+-    - name: Checkout LLVM
+-      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-
+-    - name: Install Dependencies
+-      run: |
+-        pip install -r ./llvm/utils/git/requirements.txt
+-
+-    - name: Check Permissions
+-      env:
+-        GITHUB_TOKEN: ${{ github.token }}
+-        USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
+-      run: |
+-        ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --user ${{ github.actor }} --user-token "$USER_TOKEN" check-permissions
+-
+-    - name: Collect Variables
+-      id: vars
+-      # In order for the test-release.sh script to run correctly, the LLVM
+-      # source needs to be at the following location relative to the build dir:
+-      # | X.Y.Z-rcN | ./rcN/llvm-project
+-      # | X.Y.Z     | ./final/llvm-project
+-      #
+-      # We also need to set divergent flags based on the release version:
+-      # | X.Y.Z-rcN | -rc N -test-asserts
+-      # | X.Y.Z     | -final
+-      run: |
+-        tag="${{ github.ref_name }}"
+-        trimmed=$(echo ${{ inputs.release-version }} | xargs)
+-        [[ "$trimmed" != "" ]] && tag="llvmorg-$trimmed"
+-        if [ "$tag" = "main" ]; then
+-          # If tag is main, then we've been triggered by a scheduled so pass so
+-          # use the head commit as the tag.
+-          tag=`git rev-parse HEAD`
+-        fi
+-        if [ -n "${{ inputs.upload }}" ]; then
+-          upload="${{ inputs.upload }}"
+-        else
+-          upload="false"
+-        fi
+-        bash .github/workflows/set-release-binary-outputs.sh "$tag" "$upload"
+-
+-  build-stage1-linux:
+-    name: "Build Stage 1 Linux"
+-    needs: prepare
+-    runs-on: ubuntu-22.04
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-    - name: Checkout LLVM
+-      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-      with:
+-        ref: ${{ needs.prepare.outputs.ref }}
+-
+-    - name: Install Ninja
+-      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
+-
+-    - name: Setup sccache
+-      uses: hendrikmuhs/ccache-action@ca3acd2731eef11f1572ccb126356c2f9298d35e # v1.2.9
+-      with:
+-        max-size: 250M
+-        key: sccache-${{ runner.os }}-release
+-        variant: sccache
+-
+-    - name: Build Stage 1 Clang
+-      run: |
+-        sudo chown $USER:$USER /mnt/
+-        cmake -G Ninja -C clang/cmake/caches/Release.cmake -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -S llvm -B /mnt/build
+-        ninja -v -C /mnt/build
+-
+-    # We need to create an archive of the build directory, because it has too
+-    # many files to upload.
+-    - name: Package Build and Source Directories
+-      run: |
+-        tar -c . | zstd -T0 -c > llvm-project.tar.zst
+-        tar -C /mnt/ -c build/ | zstd -T0 -c > build.tar.zst
+-
+-    - name: Upload Stage 1 Source
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: stage1-source
+-        path: llvm-project.tar.zst
+-        retention-days: 2
+-
+-    - name: Upload Stage 1 Build Dir
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: stage1-build
+-        path: build.tar.zst
+-        retention-days: 2
+-
+-  build-stage2-linux:
+-    name: "Build Stage 2 Linux"
+-    needs:
+-      - prepare
+-      - build-stage1-linux
+-    runs-on: ubuntu-22.04
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-    - name: Install Ninja
+-      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
+-
+-    - name: Download Stage 1 Artifacts
+-      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-      with:
+-        pattern: stage1-*
+-        merge-multiple: true
+-
+-    - name: Unpack Artifacts
+-      run: |
+-        tar --zstd -xf llvm-project.tar.zst
+-        rm llvm-project.tar.zst
+-        sudo chown $USER:$USER /mnt/
+-        tar --zstd -C /mnt -xf build.tar.zst
+-        rm build.tar.zst
+-
+-    - name: Build Stage 2
+-      run: |
+-        ninja -C /mnt/build stage2-instrumented
+-
+-    # We need to create an archive of the build directory, because it has too
+-    # many files to upload.
+-    - name: Save Build and Source Directories
+-      run: |
+-        tar -c . | zstd -T0 -c > llvm-project.tar.zst
+-        tar -C /mnt/ -c build/ | zstd -T0 -c > build.tar.zst
+-
+-    - name: Upload Stage 2 Source
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: stage2-source
+-        path: ${{ github.workspace }}/llvm-project.tar.zst
+-        retention-days: 2
+-
+-    - name: Upload Stage 2 Build Dir
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: stage2-build
+-        path: ${{ github.workspace }}/build.tar.zst
+-        retention-days: 2
+-
+-
+-  build-stage3-linux:
+-    name: "Build Stage 3 Linux"
+-    needs:
+-      - prepare
+-      - build-stage2-linux
+-    outputs:
+-      filename: ${{ steps.package-info.outputs.release-filename }}
+-    runs-on: ubuntu-22.04-16x64
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-    - name: Install Ninja
+-      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
+-
+-    - name: 'Download artifact'
+-      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-      with:
+-        pattern: stage2-*
+-        merge-multiple: true
+-
+-    - name: Unpack Artifact
+-      run: |
+-        tar --zstd -xf llvm-project.tar.zst
+-        rm llvm-project.tar.zst
+-        sudo chown $USER:$USER /mnt/
+-        tar --zstd -C /mnt -xf build.tar.zst
+-        rm build.tar.zst
+-
+-    - name: Build Release Package
+-      run: |
+-        ninja -C /mnt/build stage2-package
+-
+-    - id: package-info
+-      run: |
+-        filename="LLVM-${{ needs.prepare.outputs.release-version }}-Linux.tar.gz"
+-        echo "filename=$filename" >> $GITHUB_OUTPUT
+-        echo "path=/mnt/build/tools/clang/stage2-bins/$filename" >> $GITHUB_OUTPUT
+-
+-    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      if: always()
+-      with:
+-        name: release-binary
+-        path: ${{ steps.package-info.outputs.path }}
+-
+-    # Clean up some build files to reduce size of artifact.
+-    - name: Clean Up Build Directory
+-      run: |
+-        find /mnt/build -iname ${{ steps.package-info.outputs.filename }} -delete
+-
+-    # We need to create an archive of the build directory, because it has too
+-    # many files to upload.
+-    - name: Save Build and Source Directories
+-      run: |
+-        tar -c . | zstd -T0 -c > llvm-project.tar.zst
+-        tar -C /mnt/ -c build/ | zstd -T0 -c > build.tar.zst
+-
+-    - name: Upload Stage 3 Source
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: stage3-source
+-        path: llvm-project.tar.zst
+-        retention-days: 2
+-
+-    - name: Upload Stage 3 Build Dir
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: stage3-build
+-        path: build.tar.zst
+-        retention-days: 2
+-
+-  upload-release-binaries-linux:
+-    name: "Upload Linux Release Binaries"
+-    needs:
+-      - prepare
+-      - build-stage3-linux
+-    if : ${{ needs.prepare.outputs.upload == 'true' }}
+-    runs-on: ubuntu-22.04
+-    permissions:
+-      contents: write # For release uploads
+-
+-    steps:
+-    - name: 'Download artifact'
+-      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-      with:
+-        name: release-binary
+-
+-    - name: Upload Release
+-      run: |
+-        sudo apt install python3-github
+-        ./llvm-project/llvm/utils/release/github-upload-release.py \
+-        --token ${{ github.token }} \
+-        --release ${{ needs.prepare.outputs.release-version }} \
+-        upload \
+-        --files ${{ needs.build-stage3-linux.outputs.release-filename }}
+-
+-
+-  test-stage3-linux:
+-    name: "Test Stage 3 Linux"
+-    needs:
+-      - prepare
+-      - build-stage3-linux
+-    runs-on: ubuntu-22.04
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-    - name: Install Ninja
+-      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
+-
+-    - name: 'Download artifact'
+-      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-      with:
+-        pattern: stage3-*
+-        merge-multiple: true
+-
+-    - name: Unpack Artifact
+-      run: |
+-        tar --zstd -xf llvm-project.tar.zst
+-        rm llvm-project.tar.zst
+-        sudo chown $USER:$USER /mnt/
+-        tar --zstd -C /mnt -xf build.tar.zst
+-        rm build.tar.zst
+-
+-    - name: Run Tests
+-      run: |
+-        ninja -C /mnt/build stage2-check-all
+diff --git a/.github/workflows/release-documentation.yml b/.github/workflows/release-documentation.yml
+deleted file mode 100644
+index 64572906988b..000000000000
+--- a/.github/workflows/release-documentation.yml
++++ /dev/null
+@@ -1,88 +0,0 @@
+-name: Release Documentation
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-      upload:
+-        description: 'Upload documentation'
+-        required: false
+-        type: boolean
+-
+-  workflow_call:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-      upload:
+-        description: 'Upload documentation'
+-        required: false
+-        type: boolean
+-
+-jobs:
+-  release-documentation:
+-    name: Build and Upload Release Documentation
+-    runs-on: ubuntu-latest
+-    env:
+-      upload: ${{ inputs.upload && !contains(inputs.release-version, 'rc') }}
+-    steps:
+-      - name: Checkout LLVM
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-
+-      - name: Setup Python env
+-        uses: actions/setup-python@v4
+-        with:
+-          cache: 'pip'
+-          cache-dependency-path: './llvm/docs/requirements.txt'
+-
+-      - name: Install Dependencies
+-        run: |
+-          sudo apt-get update
+-          sudo apt-get install -y \
+-              graphviz \
+-              python3-github \
+-              ninja-build \
+-              texlive-font-utils
+-          pip3 install --user -r ./llvm/docs/requirements.txt
+-
+-      - name: Build Documentation
+-        env:
+-          GITHUB_TOKEN: ${{ github.token }}
+-        run: |
+-          ./llvm/utils/release/build-docs.sh -release "${{ inputs.release-version }}" -no-doxygen
+-
+-      - name: Create Release Notes Artifact
+-        uses: actions/upload-artifact@v3
+-        with:
+-          name: release-notes
+-          path: docs-build/html-export/
+-
+-      - name: Clone www-releases
+-        if: env.upload
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-        with:
+-          repository: ${{ github.repository_owner }}/www-releases
+-          ref: main
+-          fetch-depth: 0
+-          path: www-releases
+-
+-      - name: Upload Release Notes
+-        if: env.upload
+-        env:
+-          WWW_RELEASES_TOKEN: ${{ secrets.WWW_RELEASES_TOKEN }}
+-        run: |
+-          mkdir -p ../www-releases/${{ inputs.release-version }}
+-          mv ./docs-build/html-export/* ../www-releases/${{ inputs.release-version }}
+-          cd ../www-releases
+-          git add ${{ inputs.release-version }}
+-          git config user.email "llvmbot@llvm.org"
+-          git config user.name "llvmbot"
+-          git commit -a -m "Add ${{ inputs.release-version }} documentation"
+-          git push "https://$WWW_RELEASES_TOKEN@github.com/${{ github.repository_owner }}/www-releases" main:main
+diff --git a/.github/workflows/release-doxygen.yml b/.github/workflows/release-doxygen.yml
+deleted file mode 100644
+index 5e322849a1d0..000000000000
+--- a/.github/workflows/release-doxygen.yml
++++ /dev/null
+@@ -1,67 +0,0 @@
+-name: Release Doxygen
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-      upload:
+-        description: 'Upload documentation'
+-        required: false
+-        type: boolean
+-
+-  workflow_call:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-      upload:
+-        description: 'Upload documentation'
+-        required: false
+-        type: boolean
+-
+-jobs:
+-  release-doxygen:
+-    name: Build and Upload Release Doxygen
+-    runs-on: ubuntu-latest
+-    permissions:
+-      contents: write
+-    env:
+-      upload: ${{ inputs.upload && !contains(inputs.release-version, 'rc') }}
+-    steps:
+-      - name: Checkout LLVM
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-
+-      - name: Setup Python env
+-        uses: actions/setup-python@v4
+-        with:
+-          cache: 'pip'
+-          cache-dependency-path: './llvm/docs/requirements.txt'
+-
+-      - name: Install Dependencies
+-        run: |
+-          sudo apt-get update
+-          sudo apt-get install -y \
+-              doxygen \
+-              graphviz \
+-              python3-github \
+-              ninja-build \
+-              texlive-font-utils
+-          pip3 install --user -r ./llvm/docs/requirements.txt
+-
+-      - name: Build Doxygen
+-        env:
+-          GITHUB_TOKEN: ${{ github.token }}
+-        run: |
+-          ./llvm/utils/release/build-docs.sh -release "${{ inputs.release-version }}" -no-sphinx
+-
+-      - name: Upload Doxygen
+-        if: env.upload
+-        run: |
+-          ./llvm/utils/release/github-upload-release.py --token "$GITHUB_TOKEN" --release "${{ inputs.release-version }}" --user "${{ github.actor }}" upload --files ./*doxygen*.tar.xz
+diff --git a/.github/workflows/release-lit.yml b/.github/workflows/release-lit.yml
+deleted file mode 100644
+index 0316ba406041..000000000000
+--- a/.github/workflows/release-lit.yml
++++ /dev/null
+@@ -1,74 +0,0 @@
+-name: Release Lit
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-
+-  workflow_call:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: true
+-        type: string
+-
+-jobs:
+-  release-lit:
+-    name: Release Lit
+-    runs-on: ubuntu-latest
+-    steps:
+-      - name: Checkout LLVM
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-        with:
+-          ref: "llvmorg-${{ inputs.release-version }}"
+-
+-      - name: Install dependencies
+-        run: |
+-          sudo apt-get update
+-          sudo apt-get install -y python3-setuptools python3-psutil python3-github
+-
+-      - name: Check Permissions
+-        env:
+-          GITHUB_TOKEN: ${{ github.token }}
+-        run: |
+-          ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --user ${{ github.actor }} check-permissions
+-
+-      - name: Setup Cpp
+-        uses: aminya/setup-cpp@v1
+-        with:
+-          compiler: llvm-16.0.6
+-          cmake: true
+-          ninja: true
+-
+-      - name: Test lit
+-        run: |
+-          mkdir build && cd build
+-          export FILECHECK_OPTS='-dump-input-filter=all -vv -color'
+-          cmake ../llvm -DCMAKE_BUILD_TYPE=Release -G Ninja
+-          ninja -v -j $(nproc) check-lit
+-
+-      - name: Package lit
+-        run: |
+-          cd llvm/utils/lit
+-          # Remove 'dev' suffix from lit version.
+-          sed -i 's/ + "dev"//g' lit/__init__.py
+-          python3 setup.py sdist bdist_wheel
+-
+-      - name: Upload lit to test.pypi.org
+-        uses: pypa/gh-action-pypi-publish@release/v1
+-        with:
+-          password: ${{ secrets.LLVM_LIT_TEST_PYPI_API_TOKEN }}
+-          repository-url: https://test.pypi.org/legacy/
+-          packages-dir: llvm/utils/lit/dist/
+-
+-      - name: Upload lit to pypi.org
+-        uses: pypa/gh-action-pypi-publish@release/v1
+-        with:
+-          password: ${{ secrets.LLVM_LIT_PYPI_API_TOKEN }}
+-          packages-dir: llvm/utils/lit/dist/
+diff --git a/.github/workflows/release-tasks.yml b/.github/workflows/release-tasks.yml
+deleted file mode 100644
+index 53da8662b020..000000000000
+--- a/.github/workflows/release-tasks.yml
++++ /dev/null
+@@ -1,81 +0,0 @@
+-name: Release Task
+-
+-permissions:
+-  contents: write
+-
+-on:
+-  push:
+-    tags:
+-      # The regex support here is limited, so just match everything that starts with llvmorg- and filter later.
+-      - 'llvmorg-*'
+-
+-jobs:
+-  validate-tag:
+-    name: Validate Tag
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    outputs:
+-      release-version: ${{ steps.validate-tag.outputs.release-version }}
+-    steps:
+-      - name: Validate Tag
+-        id: validate-tag
+-        run: |
+-          echo "${{ github.ref_name }}" | grep -e '^llvmorg-[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc[0-9]\+\)\?$'
+-          release_version=$(echo "${{ github.ref_name }}" | sed 's/llvmorg-//g')
+-          echo "release-version=$release_version" >> "$GITHUB_OUTPUT"
+-
+-  release-create:
+-    name: Create a New Release
+-    runs-on: ubuntu-latest
+-    needs: validate-tag
+-
+-    steps:
+-      - name: Install Dependencies
+-        run: |
+-          sudo apt-get update
+-          sudo apt-get install python3-github
+-
+-      - name: Checkout LLVM
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-
+-      - name: Create Release
+-        env:
+-          GITHUB_TOKEN: ${{ github.token }}
+-          USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
+-        run: |
+-          ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --release ${{ needs.validate-tag.outputs.release-version }} --user ${{ github.actor }} --user-token "$USER_TOKEN" create
+-  release-documentation:
+-    name: Build and Upload Release Documentation
+-    needs:
+-      - validate-tag
+-    uses: ./.github/workflows/release-documentation.yml
+-    with:
+-      release-version: ${{ needs.validate-tag.outputs.release-version }}
+-      upload: true
+-
+-  release-doxygen:
+-    name: Build and Upload Release Doxygen
+-    needs:
+-      - validate-tag
+-      - release-create
+-    uses: ./.github/workflows/release-doxygen.yml
+-    with:
+-      release-version: ${{ needs.validate-tag.outputs.release-version }}
+-      upload: true
+-
+-  release-lit:
+-    name: Release Lit
+-    needs: validate-tag
+-    uses: ./.github/workflows/release-lit.yml
+-    with:
+-      release-version: ${{ needs.validate-tag.outputs.release-version }}
+-
+-  release-binaries:
+-    name: Build Release Binaries
+-    needs:
+-      - validate-tag
+-      - release-create
+-    uses: ./.github/workflows/release-binaries.yml
+-    with:
+-      release-version: ${{ needs.validate-tag.outputs.release-version }}
+-      upload: true
+diff --git a/.github/workflows/scorecard.yml b/.github/workflows/scorecard.yml
+deleted file mode 100644
+index b8e8ab26c3ff..000000000000
+--- a/.github/workflows/scorecard.yml
++++ /dev/null
+@@ -1,62 +0,0 @@
+-# This workflow uses actions that are not certified by GitHub. They are provided
+-# by a third-party and are governed by separate terms of service, privacy
+-# policy, and support documentation.
+-
+-# Check current LLVM-Project results here: https://securityscorecards.dev/viewer/?uri=github.com/llvm/llvm-project
+-
+-name: Scorecard supply-chain security
+-on:
+-  # For Branch-Protection check. Only the default branch is supported. See
+-  # https://github.com/ossf/scorecard/blob/main/docs/checks.md#branch-protection
+-  branch_protection_rule:
+-  # To guarantee Maintained check is occasionally updated. See
+-  # https://github.com/ossf/scorecard/blob/main/docs/checks.md#maintained
+-  schedule:
+-    - cron: '38 20 * * *'
+-
+-# Declare default permissions as read only.
+-permissions:
+-  contents: read
+-
+-jobs:
+-  analysis:
+-    name: Scorecard analysis
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    permissions:
+-      # Needed to upload the results to code-scanning dashboard.
+-      security-events: write
+-      # Needed to publish results and get a badge (see publish_results below).
+-      id-token: write      
+-
+-    steps:
+-      - name: "Checkout code"
+-        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8 # v3.1.0
+-        with:
+-          persist-credentials: false
+-
+-      - name: "Run analysis"
+-        uses: ossf/scorecard-action@e38b1902ae4f44df626f11ba0734b14fb91f8f86 # v2.1.2
+-        with:
+-          results_file: results.sarif
+-          results_format: sarif
+-
+-          #   - Publish results to OpenSSF REST API for easy access by consumers
+-          #   - Allows the repository to include the Scorecard badge.
+-          #   - See https://github.com/ossf/scorecard-action#publishing-results.      
+-          publish_results: true
+-
+-      # Upload the results as artifacts (optional). Commenting out will disable uploads of run results in SARIF
+-      # format to the repository Actions tab.
+-      - name: "Upload artifact"
+-        uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8 # v3.1.0
+-        with:
+-          name: SARIF file
+-          path: results.sarif
+-          retention-days: 5
+-
+-      # Upload the results to GitHub's code scanning dashboard.
+-      - name: "Upload to code-scanning"
+-        uses: github/codeql-action/upload-sarif@17573ee1cc1b9d061760f3a006fc4aac4f944fd5 # v2.2.4
+-        with:
+-          sarif_file: results.sarif
+diff --git a/.github/workflows/set-release-binary-outputs.sh b/.github/workflows/set-release-binary-outputs.sh
+deleted file mode 100644
+index 14d0798364e9..000000000000
+--- a/.github/workflows/set-release-binary-outputs.sh
++++ /dev/null
+@@ -1,34 +0,0 @@
+-# Usage: set-release-binary-outputs.sh <github_user> <tag> <upload>
+-
+-set -e
+-
+-if [ -z "$GITHUB_OUTPUT" ]; then
+-  export GITHUB_OUTPUT=`mktemp`
+-  echo "Warning: Environment variable GITHUB_OUTPUT is not set."
+-  echo "Writing output variables to $GITHUB_OUTPUT"
+-fi
+-
+-tag=$1
+-upload=$2
+-
+-if echo $tag | grep -e '^[0-9a-f]\+$'; then
+-  # This is a plain commit.
+-  # TODO: Don't hardcode this.
+-  release_version="18"
+-  upload='false'
+-  ref="$tag"
+-
+-else
+-
+-  pattern='^llvmorg-[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc[0-9]\+\)\?$'
+-  echo "$tag" | grep -e $pattern
+-  if [ $? != 0 ]; then
+-    echo "ERROR: Tag '$tag' doesn't match pattern: $pattern"
+-    exit 1
+-  fi
+-  release_version=`echo "$tag" | sed 's/llvmorg-//g'`
+-  release=`echo "$release_version" | sed 's/-.*//g'`
+-fi
+-echo "release-version=$release_version" >> $GITHUB_OUTPUT
+-echo "upload=$upload" >> $GITHUB_OUTPUT
+-echo "ref=$tag" >> $GITHUB_OUTPUT
+diff --git a/.github/workflows/spirv-tests.yml b/.github/workflows/spirv-tests.yml
+deleted file mode 100644
+index 0e1d0caca410..000000000000
+--- a/.github/workflows/spirv-tests.yml
++++ /dev/null
+@@ -1,29 +0,0 @@
+-name: SPIR-V Tests
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-  pull_request:
+-    paths:
+-      - 'llvm/lib/Target/SPIRV/**'
+-      - 'llvm/test/CodeGen/SPIRV/**'
+-      - '.github/workflows/spirv-tests.yml'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  check_spirv:
+-    if: github.repository_owner == 'llvm'
+-    name: Test SPIR-V
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      build_target: check-llvm-codegen-spirv
+-      projects:
+-      extra_cmake_args: '-DLLVM_TARGETS_TO_BUILD="" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV"'
+-      os_list: '["ubuntu-latest"]'
+diff --git a/.github/workflows/version-check.py b/.github/workflows/version-check.py
+deleted file mode 100755
+index f75fd5030088..000000000000
+--- a/.github/workflows/version-check.py
++++ /dev/null
+@@ -1,36 +0,0 @@
+-#!/usr/bin/python3
+-
+-from git import Repo
+-import re
+-import sys
+-
+-
+-def get_version_from_tag(tag):
+-    m = re.match("llvmorg-([0-9]+)\.([0-9]+)\.([0-9]+)(-rc[0-9]+)?$", tag)
+-    if m:
+-        if m.lastindex == 4:
+-            # We have an rc tag.
+-            return m.group(1, 2, 3)
+-        # We have a final release tag.
+-        return (m.group(1), m.group(2), str(int(m.group(3)) + 1))
+-
+-    m = re.match("llvmorg-([0-9]+)-init", tag)
+-    if m:
+-        return (m.group(1), "1", "0")
+-
+-    raise Exception(f"error: Tag is not valid: {tag}")
+-
+-
+-version = sys.argv[1]
+-
+-repo = Repo()
+-
+-tag = repo.git.describe(tags=True, abbrev=0)
+-expected_version = ".".join(get_version_from_tag(tag))
+-
+-if version != expected_version:
+-    print("error: Expected version", expected_version, "but found version", version)
+-    sys.exit(1)
+-
+-print("Versions match:", version, expected_version)
+-sys.exit(0)
+diff --git a/.github/workflows/version-check.yml b/.github/workflows/version-check.yml
+deleted file mode 100644
+index c6d779080bbe..000000000000
+--- a/.github/workflows/version-check.yml
++++ /dev/null
+@@ -1,31 +0,0 @@
+-name: LLVM Project Version Check
+-
+-on:
+-  push:
+-    branches:
+-      - 'release/**'
+-  pull_request:
+-    branches:
+-      - 'release/**'
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  version_check:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    steps:
+-      - name: Fetch LLVM sources
+-        uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 0
+-
+-      - name: Install dependencies
+-        run: |
+-          pip install -r ./llvm/utils/git/requirements.txt
+-
+-      - name: Version Check
+-        run: |
+-          version=$(grep -o 'LLVM_VERSION_\(MAJOR\|MINOR\|PATCH\) [0-9]\+' llvm/CMakeLists.txt  | cut -d ' ' -f 2 | tr "\n" "." | sed 's/.$//g')
+-          .github/workflows/version-check.py "$version"
+diff --git a/README.md b/README.md
+deleted file mode 100644
+index 7fb16fd1d071..000000000000
+--- a/README.md
++++ /dev/null
+@@ -1,44 +0,0 @@
+-# The LLVM Compiler Infrastructure
+-
+-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/llvm/llvm-project/badge)](https://securityscorecards.dev/viewer/?uri=github.com/llvm/llvm-project)
+-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/8273/badge)](https://www.bestpractices.dev/projects/8273)
+-[![libc++](https://github.com/llvm/llvm-project/actions/workflows/libcxx-build-and-test.yaml/badge.svg?branch=main&event=schedule)](https://github.com/llvm/llvm-project/actions/workflows/libcxx-build-and-test.yaml?query=event%3Aschedule)
+-
+-Welcome to the LLVM project!
+-
+-This repository contains the source code for LLVM, a toolkit for the
+-construction of highly optimized compilers, optimizers, and run-time
+-environments.
+-
+-The LLVM project has multiple components. The core of the project is
+-itself called "LLVM". This contains all of the tools, libraries, and header
+-files needed to process intermediate representations and convert them into
+-object files. Tools include an assembler, disassembler, bitcode analyzer, and
+-bitcode optimizer.
+-
+-C-like languages use the [Clang](http://clang.llvm.org/) frontend. This
+-component compiles C, C++, Objective-C, and Objective-C++ code into LLVM bitcode
+--- and from there into object files, using LLVM.
+-
+-Other components include:
+-the [libc++ C++ standard library](https://libcxx.llvm.org),
+-the [LLD linker](https://lld.llvm.org), and more.
+-
+-## Getting the Source Code and Building LLVM
+-
+-Consult the
+-[Getting Started with LLVM](https://llvm.org/docs/GettingStarted.html#getting-the-source-code-and-building-llvm)
+-page for information on building and running LLVM.
+-
+-For information on how to contribute to the LLVM project, please take a look at
+-the [Contributing to LLVM](https://llvm.org/docs/Contributing.html) guide.
+-
+-## Getting in touch
+-
+-Join the [LLVM Discourse forums](https://discourse.llvm.org/), [Discord
+-chat](https://discord.gg/xS7Z362),
+-[LLVM Office Hours](https://llvm.org/docs/GettingInvolved.html#office-hours) or
+-[Regular sync-ups](https://llvm.org/docs/GettingInvolved.html#online-sync-ups).
+-
+-The LLVM project has adopted a [code of conduct](https://llvm.org/docs/CodeOfConduct.html) for
+-participants to all modes of communication within the project.
+-- 
+2.50.1.windows.1
+

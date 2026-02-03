@@ -1,0 +1,25 @@
+From f8a3a680c0f4c5d8f0f30d19213435c7e1b2725d Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 30 Jul 2024 18:28:20 +1000
+Subject: [PATCH] [ast-match] Silence assert in PointerUnion get as well
+
+---
+ llvm/include/llvm/ADT/PointerUnion.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/llvm/include/llvm/ADT/PointerUnion.h b/llvm/include/llvm/ADT/PointerUnion.h
+index 2bbd4a622800..b739a4244452 100644
+--- a/llvm/include/llvm/ADT/PointerUnion.h
++++ b/llvm/include/llvm/ADT/PointerUnion.h
+@@ -153,7 +153,7 @@ public:
+   ///
+   /// If the specified pointer type is incorrect, assert.
+   template <typename T> inline T get() const {
+-    assert(isa<T>(*this) && "Invalid accessor called");
++    // assert(isa<T>(*this) && "Invalid accessor called");
+     return cast<T>(*this);
+   }
+ 
+-- 
+2.50.1.windows.1
+

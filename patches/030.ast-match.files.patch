@@ -1,0 +1,86 @@
+From 3df974cb5a0cb67c480e72de5e50247cdbb07f9f Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 16:12:40 +1100
+Subject: [PATCH] [ast-match] Create fork-specific AST matcher files
+
+---
+ clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h         | 0
+ clang/include/clang/ASTMatchers/ASTMatchers.h                | 2 ++
+ clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h | 0
+ clang/include/clang/ASTMatchers/ASTMatchersInternal.h        | 2 ++
+ clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h           | 0
+ clang/lib/ASTMatchers/ASTMatchersInternal.cpp                | 2 ++
+ clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h              | 0
+ clang/lib/ASTMatchers/Dynamic/Registry.cpp                   | 2 ++
+ 8 files changed, 8 insertions(+)
+ create mode 100644 clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+ create mode 100644 clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h
+ create mode 100644 clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h
+ create mode 100644 clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.h b/clang/include/clang/ASTMatchers/ASTMatchers.h
+index dc1f49525a00..14c4e1121e9e 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.h
+@@ -8742,6 +8742,8 @@ AST_MATCHER_P(OMPExecutableDirective, isAllowedToContainClauseKind,
+ // End OpenMP handling.
+ //----------------------------------------------------------------------------//
+ 
++#include "ASTMatchers.Unreal.h"
++
+ } // namespace ast_matchers
+ } // namespace clang
+ 
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchersInternal.h b/clang/include/clang/ASTMatchers/ASTMatchersInternal.h
+index 47d912c73dd7..e864959cac89 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchersInternal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchersInternal.h
+@@ -2295,6 +2295,8 @@ MatchTemplateArgLocAt(const TemplateSpecializationTypeLoc &Node,
+          InnerMatcher.matches(Node.getArgLoc(Index), Finder, Builder);
+ }
+ 
++#include "ASTMatchersInternal.Unreal.h"
++
+ } // namespace internal
+ 
+ } // namespace ast_matchers
+diff --git a/clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h b/clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/clang/lib/ASTMatchers/ASTMatchersInternal.cpp b/clang/lib/ASTMatchers/ASTMatchersInternal.cpp
+index bf87b1aa0992..57cd8693d93a 100644
+--- a/clang/lib/ASTMatchers/ASTMatchersInternal.cpp
++++ b/clang/lib/ASTMatchers/ASTMatchersInternal.cpp
+@@ -1095,5 +1095,7 @@ const internal::VariadicDynCastAllOfMatcher<OMPClause, OMPDefaultClause>
+ const internal::VariadicDynCastAllOfMatcher<Decl, CXXDeductionGuideDecl>
+     cxxDeductionGuideDecl;
+ 
++#include "ASTMatchersInternal.Unreal.h"
++
+ } // end namespace ast_matchers
+ } // end namespace clang
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.cpp b/clang/lib/ASTMatchers/Dynamic/Registry.cpp
+index 15dad022df5f..089a1d6c23b5 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.cpp
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.cpp
+@@ -609,6 +609,8 @@ RegistryMaps::RegistryMaps() {
+   REGISTER_MATCHER(voidType);
+   REGISTER_MATCHER(whileStmt);
+   REGISTER_MATCHER(withInitializer);
++  
++  #include "Registry.Unreal.h"
+ }
+ 
+ RegistryMaps::~RegistryMaps() = default;
+-- 
+2.50.1.windows.1
+

@@ -1,0 +1,81 @@
+From 608153ba17080556547024a71d368aef2a5012bd Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Sun, 30 Jun 2024 21:55:56 +1000
+Subject: [PATCH] [rulesets] Add 'Debug' option to rules to dump the AST on
+ bound nodes
+
+---
+ clang/lib/Frontend/ClangRulesets.cpp | 36 +++++++++++++++++++++++++++-
+ 1 file changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/clang/lib/Frontend/ClangRulesets.cpp b/clang/lib/Frontend/ClangRulesets.cpp
+index 70c19db91d02..bf8d734cfbb6 100644
+--- a/clang/lib/Frontend/ClangRulesets.cpp
++++ b/clang/lib/Frontend/ClangRulesets.cpp
+@@ -89,6 +89,10 @@ struct ClangRulesRule {
+   /// Windows. This can be used for rules which match on Windows-specific AST
+   /// nodes (such as '__declspec(dllexport)').
+   bool WindowsOnly;
++  /// If true, the AST of bound nodes in the AST matcher expression will be
++  /// dumped to the compiler console output when this rule matches. This can be
++  /// used to create and diagnose matcher expressions.
++  bool Debug;
+ };
+ 
+ /// A mapping from a ruleset to the previously defined rule and severity to
+@@ -186,6 +190,7 @@ template <> struct MappingTraits<clang::rulesets::config::ClangRulesRule> {
+     IO.mapRequired("Callsite", Rule.Callsite);
+     IO.mapOptional("Hints", Rule.Hints);
+     IO.mapOptional("WindowsOnly", Rule.WindowsOnly, false);
++    IO.mapOptional("Debug", Rule.Debug, false);
+   }
+ };
+ 
+@@ -626,7 +631,8 @@ private:
+       // them at all.
+       for (auto It = EffectiveConfig->EffectiveRules.begin();
+            It != EffectiveConfig->EffectiveRules.end();) {
+-        if (It->second.Severity == config::ClangRulesSeverity::CRS_Silence) {
++        if (It->second.Severity == config::ClangRulesSeverity::CRS_Silence &&
++            !It->second.Rule->Debug) {
+           It = EffectiveConfig->EffectiveRules.erase(It);
+         } else {
+           ++It;
+@@ -708,6 +714,34 @@ private:
+         // Obtain lock.
+         this->Mutex.lock();
+ 
++        // If this rule is configured for debug/diagnostic mode, emit the AST
++        // of all bound nodes.
++        if (this->EffectiveRule.Rule->Debug) {
++          llvm::outs() << "Printing AST matcher diagnostics for rule '"
++                       << this->EffectiveRule.Rule->Name
++                       << "' as the 'Debug' option is enabled in the "
++                          ".clang-rules file where it is defined.\n";
++          for (const auto &KV : Result.Nodes.getMap()) {
++            llvm::outs() << "The bound node '" << KV.first << "' of rule '"
++                         << this->EffectiveRule.Rule->Name
++                         << "' matches the AST node:\n";
++            KV.second.dump(llvm::outs(), this->AST);
++          }
++
++          // Debug rules bypass the 'Silence' check excluding them from
++          // evaluation, so that we can still run this "dump AST" code
++          // even when they're not meant to generate a diagnostic. If this
++          // rule is configured for 'Silence' severity, return now to skip
++          // over any diagnostic emit code.
++          if (this->EffectiveRule.Severity ==
++              config::ClangRulesSeverity::CRS_Silence) {
++            // Release lock.
++            this->Mutex.unlock();
++            // Return early.
++            return;
++          }
++        }
++
+         // Report the diagnostic on the main node.
+         {
+           clang::SourceLocation CallsiteLoc;
+-- 
+2.50.1.windows.1
+

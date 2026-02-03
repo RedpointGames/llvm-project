@@ -1,0 +1,67 @@
+From aab82e71a77c3d16409c56485d45b68ecc1d912f Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Thu, 1 Aug 2024 16:24:46 +1000
+Subject: [PATCH] [ast-match] Add isNamespaceSpecifierRootedToGlobal AST
+ matcher (#7)
+
+This matches on nested namespace specifiers like '::A::B::C' but not 'A::B::C'.
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 25 ++++++++++++++++---
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  1 +
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index 51ee15dc17a4..cbfcb8c2b608 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -485,7 +485,7 @@ inline bool hasDeletedCopyConstructor(QualType Type) {
+ }
+ 
+ inline std::optional<bool> isExpensiveToCopyNode(QualType Type,
+-                                      const ASTContext &Context) {
++                                                 const ASTContext &Context) {
+   if (Type->isDependentType() || Type->isIncompleteType())
+     return std::nullopt;
+   return !Type.isTriviallyCopyableType(Context) &&
+@@ -506,6 +506,25 @@ AST_MATCHER(QualType, isExpensiveToCopy) {
+ /// \endcode
+ /// \c namedDecl(isUnrealExported())
+ ///   matches the class.
+-AST_MATCHER(NamedDecl, isUnrealExported) {
+-  return Node.UnrealExported;
++AST_MATCHER(NamedDecl, isUnrealExported) { return Node.UnrealExported; }
++
++/// Matches if a nested namespace specifier is rooted to the global namespace.
++///
++/// Given
++/// \code
++///   using namespace A::B::C;
++///   using namespace ::A::B::C;
++/// \endcode
++/// \c
++/// usingDirectiveDecl(has(nestedNameSpecifier(isNamespaceSpecifierRootedToGlobal())))
++///   matches the second 'using namespace' directive.
++AST_MATCHER(NestedNameSpecifier, isNamespaceSpecifierRootedToGlobal) {
++  const NestedNameSpecifier *Current = &Node;
++  while (Current != nullptr) {
++    if (Current->getKind() == NestedNameSpecifier::SpecifierKind::Global) {
++      return true;
++    }
++    Current = Current->getPrefix();
++  }
++  return false;
+ }
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index 39cca84e752a..4728f4522b5d 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -19,4 +19,5 @@ REGISTER_MATCHER(withIInterface);
+ REGISTER_MATCHER(withUInterface);
+ REGISTER_MATCHER(isExpensiveToCopy);
+ REGISTER_MATCHER(isUnrealExported);
++REGISTER_MATCHER(isNamespaceSpecifierRootedToGlobal);
+ // @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+

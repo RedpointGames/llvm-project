@@ -1,0 +1,54 @@
+From 3ecff195a1df060be64a028547cbd17d8e14e81c Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Fri, 14 Feb 2025 15:10:23 +1100
+Subject: [PATCH] [ast-match] Add isAggregate and isFullyDesignated AST
+ matchers (#12)
+
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 20 +++++++++++++++++++
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  2 ++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index cbfcb8c2b608..6f8bac43e01b 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -528,3 +528,23 @@ AST_MATCHER(NestedNameSpecifier, isNamespaceSpecifierRootedToGlobal) {
+   }
+   return false;
+ }
++
++/// Matches if a CXX record decl is an aggregate type, which is a class with no user-declared 
++/// constructors, no private or protected non-static data members, no base classes, and no virtual
++/// functions (C++ [dcl.init.aggr]p1).
++AST_MATCHER(CXXRecordDecl, isAggregate) {
++  return Node.hasDefinition() && Node.isAggregate();
++}
++
++/// Matches if a init list expr is full designated (contains no initialization elements that aren't
++/// designated.
++AST_MATCHER(InitListExpr, isFullyDesignated) {
++  if (const InitListExpr *SyntacticForm =
++          Node.isSyntacticForm() ? &Node : Node.getSyntacticForm()) {
++    unsigned NumberOfDesignated = llvm::count_if(*SyntacticForm, [](auto *InitExpr) {
++      return isa<DesignatedInitExpr>(InitExpr);
++    });
++    return NumberOfDesignated == SyntacticForm->getNumInits();
++  }
++  return true;
++}
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index 4728f4522b5d..a55228d33a92 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -20,4 +20,6 @@ REGISTER_MATCHER(withUInterface);
+ REGISTER_MATCHER(isExpensiveToCopy);
+ REGISTER_MATCHER(isUnrealExported);
+ REGISTER_MATCHER(isNamespaceSpecifierRootedToGlobal);
++REGISTER_MATCHER(isAggregate);
++REGISTER_MATCHER(isFullyDesignated);
+ // @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+

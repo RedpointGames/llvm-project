@@ -1,0 +1,614 @@
+From 4be1d63bb480f4aefbd6f94dff9f8ed689b769df Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Sat, 3 Aug 2024 03:20:07 +1000
+Subject: [PATCH] [rulesets] Allow rule severity to be controlled by pragma
+ directives (#9)
+
+* Allow rule severity to be controlled by pragma directives
+
+* Rename DiagnosticIDs.Unreal.cpp
+---
+ .../clang/Basic/DiagnosticIDs.Unreal.h        |   5 +
+ clang/include/clang/Basic/DiagnosticIDs.h     |   4 +
+ clang/lib/Basic/Diagnostic.cpp                |  11 +-
+ clang/lib/Basic/DiagnosticIDs.UnrealImpl.h    | 117 +++++++++
+ clang/lib/Basic/DiagnosticIDs.cpp             |  58 ++---
+ clang/lib/Frontend/ClangRulesets.cpp          | 241 +++++++++++-------
+ clang/lib/Lex/Pragma.cpp                      |   7 +-
+ 7 files changed, 304 insertions(+), 139 deletions(-)
+ create mode 100644 clang/include/clang/Basic/DiagnosticIDs.Unreal.h
+ create mode 100644 clang/lib/Basic/DiagnosticIDs.UnrealImpl.h
+
+diff --git a/clang/include/clang/Basic/DiagnosticIDs.Unreal.h b/clang/include/clang/Basic/DiagnosticIDs.Unreal.h
+new file mode 100644
+index 000000000000..9d6bafce350d
+--- /dev/null
++++ b/clang/include/clang/Basic/DiagnosticIDs.Unreal.h
+@@ -0,0 +1,5 @@
++unsigned getCustomDiagID(Level L, StringRef FormatString, StringRef Name);
++bool getExistingCustomDiagIDs(StringRef Name,
++                             SmallVectorImpl<diag::kind> &Diags);
++std::optional<unsigned> getExistingCustomDiagID(StringRef Name,
++                                                               Level L);
+\ No newline at end of file
+diff --git a/clang/include/clang/Basic/DiagnosticIDs.h b/clang/include/clang/Basic/DiagnosticIDs.h
+index 0cdda42793f6..21e66306d8c8 100644
+--- a/clang/include/clang/Basic/DiagnosticIDs.h
++++ b/clang/include/clang/Basic/DiagnosticIDs.h
+@@ -200,6 +200,10 @@ public:
+   // writing, nearly all callers of this function were invalid.
+   unsigned getCustomDiagID(Level L, StringRef FormatString);
+ 
++  // @unreal: BEGIN
++  #include "DiagnosticIDs.Unreal.h"
++  // @unreal: END
++
+   //===--------------------------------------------------------------------===//
+   // Diagnostic classification and reporting interfaces.
+   //
+diff --git a/clang/lib/Basic/Diagnostic.cpp b/clang/lib/Basic/Diagnostic.cpp
+index 0208ccc31bd7..72656efeabd7 100644
+--- a/clang/lib/Basic/Diagnostic.cpp
++++ b/clang/lib/Basic/Diagnostic.cpp
+@@ -353,8 +353,10 @@ void DiagnosticsEngine::PushDiagStatePoint(DiagState *State,
+ 
+ void DiagnosticsEngine::setSeverity(diag::kind Diag, diag::Severity Map,
+                                     SourceLocation L) {
+-  assert(Diag < diag::DIAG_UPPER_LIMIT &&
+-         "Can only map builtin diagnostics");
++  // @unreal: BEGIN
++  // assert(Diag < diag::DIAG_UPPER_LIMIT &&
++  //        "Can only map builtin diagnostics");
++  // @unreal: END
+   assert((Diags->isBuiltinWarningOrExtension(Diag) ||
+           (Map == diag::Severity::Fatal || Map == diag::Severity::Error)) &&
+          "Cannot map errors into warnings!");
+@@ -404,7 +406,10 @@ bool DiagnosticsEngine::setSeverityForGroup(diag::Flavor Flavor,
+   // Get the diagnostics in this group.
+   SmallVector<diag::kind, 256> GroupDiags;
+   if (Diags->getDiagnosticsInGroup(Flavor, Group, GroupDiags))
+-    return true;
++    // @unreal: BEGIN
++    if (Diags->getExistingCustomDiagIDs(Group, GroupDiags))
++      // @unreal: END
++      return true;
+ 
+   // Set the mapping.
+   for (diag::kind Diag : GroupDiags)
+diff --git a/clang/lib/Basic/DiagnosticIDs.UnrealImpl.h b/clang/lib/Basic/DiagnosticIDs.UnrealImpl.h
+new file mode 100644
+index 000000000000..7746ac67a239
+--- /dev/null
++++ b/clang/lib/Basic/DiagnosticIDs.UnrealImpl.h
+@@ -0,0 +1,117 @@
++namespace clang {
++namespace diag {
++class CustomDiagInfoEntry {
++public:
++  DiagnosticIDs::Level Level;
++  std::string Name;
++  std::string Description;
++  unsigned DiagID;
++
++  CustomDiagInfoEntry() {}
++  CustomDiagInfoEntry(DiagnosticIDs::Level InLevel, std::string InName,
++                      std::string InDescription, unsigned InDiagID)
++      : Level(InLevel), Name(InName), Description(InDescription),
++        DiagID(InDiagID) {}
++};
++
++class CustomDiagInfo {
++  std::vector<CustomDiagInfoEntry> DiagInfo;
++  llvm::StringMap<std::vector<CustomDiagInfoEntry>> DiagInfoByName;
++
++public:
++  /// getName - Return the name of the specified custom
++  /// diagnostic.
++  StringRef getName(unsigned DiagID) const {
++    assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
++           "Invalid diagnostic ID");
++    return DiagInfo[DiagID - DIAG_UPPER_LIMIT].Name;
++  }
++
++  /// getDescription - Return the description of the specified custom
++  /// diagnostic.
++  StringRef getDescription(unsigned DiagID) const {
++    assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
++           "Invalid diagnostic ID");
++    return DiagInfo[DiagID - DIAG_UPPER_LIMIT].Description;
++  }
++
++  /// getLevel - Return the level of the specified custom diagnostic.
++  DiagnosticIDs::Level getLevel(unsigned DiagID) const {
++    assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
++           "Invalid diagnostic ID");
++    return DiagInfo[DiagID - DIAG_UPPER_LIMIT].Level;
++  }
++
++  std::optional<unsigned> tryGetDiagID(StringRef Name,
++                                       DiagnosticIDs::Level L) const {
++    auto It = this->DiagInfoByName.find(Name);
++    if (It == this->DiagInfoByName.end()) {
++      return std::optional<unsigned>();
++    }
++    for (const auto &E : It->getValue()) {
++      if (E.Level == L) {
++        return E.DiagID;
++      }
++    }
++    return std::optional<unsigned>();
++  }
++
++  bool tryGetDiagIDs(StringRef Name, SmallVectorImpl<diag::kind> &Diags) const {
++    auto It = this->DiagInfoByName.find(Name);
++    if (It == this->DiagInfoByName.end()) {
++      return false;
++    }
++    for (const auto &E : It->getValue()) {
++      Diags.push_back(E.DiagID);
++    }
++    return true;
++  }
++
++  unsigned getOrCreateDiagID(DiagnosticIDs::Level L, StringRef Message,
++                             DiagnosticIDs &Diags, StringRef *Name = nullptr) {
++    // Check to see if it already exists.
++    StringRef NameResolved =
++        Name == nullptr ? std::to_string(llvm::xxHash64(Message)) : *Name;
++    auto It = this->DiagInfoByName.find(NameResolved);
++    if (It != this->DiagInfoByName.end()) {
++      for (const auto &E : It->getValue()) {
++        if (E.Level == L) {
++          return E.DiagID;
++        }
++      }
++    }
++
++    // If not, assign a new ID.
++    unsigned ID = this->DiagInfo.size() + DIAG_UPPER_LIMIT;
++    auto Entry = CustomDiagInfoEntry(L, NameResolved.str(), Message.str(), ID);
++    this->DiagInfo.push_back(Entry);
++    this->DiagInfoByName[NameResolved].push_back(Entry);
++    return ID;
++  }
++};
++
++} // namespace diag
++} // namespace clang
++
++unsigned DiagnosticIDs::getCustomDiagID(Level L, StringRef FormatString,
++                                        StringRef Name) {
++  if (!CustomDiagInfo)
++    CustomDiagInfo.reset(new diag::CustomDiagInfo());
++  return CustomDiagInfo->getOrCreateDiagID(L, FormatString, *this, &Name);
++}
++
++bool DiagnosticIDs::getExistingCustomDiagIDs(
++    StringRef Name, SmallVectorImpl<diag::kind> &Diags) {
++  if (!CustomDiagInfo) {
++    CustomDiagInfo.reset(new diag::CustomDiagInfo());
++  }
++  return !CustomDiagInfo->tryGetDiagIDs(Name, Diags);
++}
++
++std::optional<unsigned> DiagnosticIDs::getExistingCustomDiagID(StringRef Name,
++                                                                Level L) {
++  if (!CustomDiagInfo) {
++    CustomDiagInfo.reset(new diag::CustomDiagInfo());
++  }
++  return CustomDiagInfo->tryGetDiagID(Name, L);
++}
+\ No newline at end of file
+diff --git a/clang/lib/Basic/DiagnosticIDs.cpp b/clang/lib/Basic/DiagnosticIDs.cpp
+index 6c7bd50eefb7..2172757a74e8 100644
+--- a/clang/lib/Basic/DiagnosticIDs.cpp
++++ b/clang/lib/Basic/DiagnosticIDs.cpp
+@@ -19,6 +19,9 @@
+ #include "llvm/Support/ErrorHandling.h"
+ #include <map>
+ #include <optional>
++// @unreal: BEGIN
++#include "llvm/Support/xxhash.h"
++// @unreal: END
+ using namespace clang;
+ 
+ //===----------------------------------------------------------------------===//
+@@ -183,7 +186,7 @@ const StaticDiagInfoRec StaticDiagInfo[] = {
+       SHOWINSYSHEADER,                                                         \
+       SHOWINSYSMACRO,                                                          \
+       GROUP,                                                                   \
+-	    DEFERRABLE,                                                              \
++        DEFERRABLE,                                                              \
+       STR_SIZE(DESC, uint16_t)},
+ #include "clang/Basic/DiagnosticCommonKinds.inc"
+ #include "clang/Basic/DiagnosticDriverKinds.inc"
+@@ -342,48 +345,11 @@ static unsigned getBuiltinDiagClass(unsigned DiagID) {
+ // Custom Diagnostic information
+ //===----------------------------------------------------------------------===//
+ 
+-namespace clang {
+-  namespace diag {
+-    class CustomDiagInfo {
+-      typedef std::pair<DiagnosticIDs::Level, std::string> DiagDesc;
+-      std::vector<DiagDesc> DiagInfo;
+-      std::map<DiagDesc, unsigned> DiagIDs;
+-    public:
+-
+-      /// getDescription - Return the description of the specified custom
+-      /// diagnostic.
+-      StringRef getDescription(unsigned DiagID) const {
+-        assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
+-               "Invalid diagnostic ID");
+-        return DiagInfo[DiagID-DIAG_UPPER_LIMIT].second;
+-      }
+-
+-      /// getLevel - Return the level of the specified custom diagnostic.
+-      DiagnosticIDs::Level getLevel(unsigned DiagID) const {
+-        assert(DiagID - DIAG_UPPER_LIMIT < DiagInfo.size() &&
+-               "Invalid diagnostic ID");
+-        return DiagInfo[DiagID-DIAG_UPPER_LIMIT].first;
+-      }
+-
+-      unsigned getOrCreateDiagID(DiagnosticIDs::Level L, StringRef Message,
+-                                 DiagnosticIDs &Diags) {
+-        DiagDesc D(L, std::string(Message));
+-        // Check to see if it already exists.
+-        std::map<DiagDesc, unsigned>::iterator I = DiagIDs.lower_bound(D);
+-        if (I != DiagIDs.end() && I->first == D)
+-          return I->second;
+-
+-        // If not, assign a new ID.
+-        unsigned ID = DiagInfo.size()+DIAG_UPPER_LIMIT;
+-        DiagIDs.insert(std::make_pair(D, ID));
+-        DiagInfo.push_back(D);
+-        return ID;
+-      }
+-    };
+-
+-  } // end diag namespace
+-} // end clang namespace
+-
++// @unreal: BEGIN
++// @note: We've replaced custom diagnostic information entirely
++// so we can support silencing ruleset rules via pragmas.
++#include "DiagnosticIDs.UnrealImpl.h"
++// @unreal: END
+ 
+ //===----------------------------------------------------------------------===//
+ // Common Diagnostic implementation
+@@ -479,6 +445,12 @@ DiagnosticIDs::getDiagnosticLevel(unsigned DiagID, SourceLocation Loc,
+   // Handle custom diagnostics, which cannot be mapped.
+   if (DiagID >= diag::DIAG_UPPER_LIMIT) {
+     assert(CustomDiagInfo && "Invalid CustomDiagInfo");
++    // @unreal: BEGIN
++    auto CustomSeverity = getDiagnosticSeverity(DiagID, Loc, Diag);
++    if (CustomSeverity != diag::Severity::Fatal) {
++      return toLevel(CustomSeverity);
++    }
++    // @unreal: END
+     return CustomDiagInfo->getLevel(DiagID);
+   }
+ 
+diff --git a/clang/lib/Frontend/ClangRulesets.cpp b/clang/lib/Frontend/ClangRulesets.cpp
+index a5dc5191dded..172ee9e92b3d 100644
+--- a/clang/lib/Frontend/ClangRulesets.cpp
++++ b/clang/lib/Frontend/ClangRulesets.cpp
+@@ -513,6 +513,7 @@ public:
+   std::unique_ptr<llvm::Timer> RulesetAnalysisFileCheckTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisFileChangeTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisMaterializationTimer;
++  std::unique_ptr<llvm::Timer> RulesetAnalysisPragmaMaterializationTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisExecuteTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisScheduleTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisWaitTimer;
+@@ -557,6 +558,11 @@ public:
+             "Materialize loaded rules into effective rules during top-level "
+             "AST traversal",
+             *RulesetTimerGroup)),
++        RulesetAnalysisPragmaMaterializationTimer(std::make_unique<llvm::Timer>(
++            "ruleset-analysis-pragma-materialize",
++            "Materialize loaded rules into effective rules during diagnostic "
++            "pragmas",
++            *RulesetTimerGroup)),
+         RulesetAnalysisExecuteTimer(std::make_unique<llvm::Timer>(
+             "ruleset-analysis-execute",
+             "Time spent running scheduling work on background threads",
+@@ -1090,6 +1096,127 @@ private:
+   }
+ 
+ public:
++  void pragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
++                        diag::Severity mapping, StringRef Str) {
++    if (!Str.contains('/')) {
++      // Can't be a ruleset.
++      return;
++    }
++
++    auto FileID = SrcMgr.getFileID(SrcMgr.getFileLoc(Loc));
++    auto FileEntry = SrcMgr.getFileEntryRefForID(FileID);
++    if (!FileEntry) {
++      return;
++    }
++    auto DirState = this->Dirs.find(FileEntry->getDir());
++    if (DirState == this->Dirs.end()) {
++      return;
++    }
++
++    if (!DirState->second.Materialized) {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(
++          this->CI, MaterializationTimer, this->Timing,
++          RulesetAnalysisPragmaMaterializationTimer);
++      this->materializeDirectoryState(DirState->second, CI.getDiagnostics());
++    }
++
++    // @note: Materializing is all we need to do here, since that will create
++    // diagnostic IDs as a side effect of materialization.
++  }
++
++  void lexedFileChanged(FileID FID, PPCallbacks::LexedFileChangeReason Reason,
++                        SrcMgr::CharacteristicKind FileType, FileID PrevFID,
++                        SourceLocation Loc) {
++    SourceManager &SrcMgr = CI.getSourceManager();
++    OptionalFileEntryRef OptionalFileEntryRef =
++        SrcMgr.getFileEntryRefForID(FID);
++    if (!OptionalFileEntryRef.has_value()) {
++      // If there's no file entry for the new file, we don't process it.
++      return;
++    }
++
++    DirectoryEntryRef ContainingDirectory = OptionalFileEntryRef->getDir();
++    if (!this->Dirs.contains(ContainingDirectory)) {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(this->CI, Timer, this->getTiming(),
++                                          RulesetLoadClangRulesTimer);
++
++      // This leaf directory hasn't been seen before. We need to make an
++      // absolute path with '.' entries removed so that we can start
++      // traversing up the directory tree.
++      llvm::SmallString<256> LeafAbsolutePath(ContainingDirectory.getName());
++      CI.getFileManager().makeAbsolutePath(LeafAbsolutePath);
++      llvm::sys::path::remove_dots(LeafAbsolutePath, true);
++
++      // Track our current absolute path as we move upwards from the leaf.
++      llvm::StringRef CurrentAbsolutePath = LeafAbsolutePath;
++
++      // Starting at the current directory, search upwards for .clang-rules
++      // files.
++      while (!this->Dirs.contains(ContainingDirectory)) {
++        // Convert to an absolute path, since we might need to traverse up out
++        // of the working directory to find our .clangrules files.
++        // Go check this directory for a .clangrules file.
++        llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
++        llvm::sys::path::append(ClangRulesPath, ".clang-rules");
++        llvm::Expected<FileEntryRef> ClangRulesFile =
++            CI.getFileManager().getFileRef(ClangRulesPath, true, true);
++        if (ClangRulesFile) {
++          // We got a .clangrules file in this directory; load it into the
++          // Clang source manager so we can report diagnostics etc.
++          clang::FileID ClangRulesFileID =
++              CI.getSourceManager().getOrCreateFileID(
++                  ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
++          this->Dirs[ContainingDirectory].ActualOnDiskConfigs =
++              this->loadClangRulesFromPreprocessor(ClangRulesFileID);
++
++          // Add the .clang-rules to the dependencies so that external tools
++          // such as UBT know to build again when the rules file changes.
++          //
++          // @note: It's impossible for us to notify external tools of paths
++          // that *might* influence compilation if a new .clang-rules file is
++          // added to the folder hierarchy, since UBT assumes all dependencies
++          // are files that exist (so we can't even emit the directory whose
++          // last modified time would change when a file is added or deleted).
++          CI.getDependencyOutputOpts().ExtraDeps.push_back(
++              std::pair<std::string, ExtraDepKind>(
++                  ClangRulesPath, ExtraDepKind::EDK_DepFileEntry));
++        } else {
++          // We did not get a .clangrules file in this directory; cache that
++          // it is empty.
++          consumeError(ClangRulesFile.takeError());
++          this->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
++        }
++        // Modify CurrentAbsolutePath so that it contains the next parent path
++        // to evaluate.
++        RULESET_TRACE_CONFIG("Computed parent directory of '"
++                             << CurrentAbsolutePath);
++        CurrentAbsolutePath = llvm::sys::path::parent_path(CurrentAbsolutePath);
++        RULESET_TRACE_CONFIG_NO_PREFIX("' as '" << CurrentAbsolutePath
++                                                << "'\n");
++        if (CurrentAbsolutePath.empty() ||
++            (llvm::sys::path::is_style_windows(
++                 llvm::sys::path::Style::native) &&
++             CurrentAbsolutePath.ends_with(":"))) {
++          // No further parent directories.
++          break;
++        } else {
++          llvm::Expected<DirectoryEntryRef> OptionalParentDirectory =
++              CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
++          if (!OptionalParentDirectory) {
++            // Can't get parent directory.
++            break;
++          } else {
++            // Loop again with the new parent directory.
++            this->Dirs[ContainingDirectory].ParentDirectory =
++                OptionalParentDirectory.get();
++            ContainingDirectory = OptionalParentDirectory.get();
++          }
++        }
++      }
++    }
++  }
++
++private:
+   std::unique_ptr<std::vector<config::ClangRules>>
+   loadClangRulesFromPreprocessor(clang::FileID &FileID) {
+     // Set up our YAML parser.
+@@ -1255,7 +1382,6 @@ public:
+     return LoadedDocuments;
+   }
+ 
+-private:
+   void
+   applyRulesetToEffectiveRules(bool &StillValid,
+                                llvm::DenseSet<llvm::StringRef> &VisitedRulesets,
+@@ -1416,6 +1542,17 @@ private:
+         return;
+       }
+ 
++      // If we have an effective configuration, iterate through all of the rules
++      // and generate diagnostic IDs so that code can use pragmas to control
++      // them.
++      for (const auto &EffectiveRule : EffectiveConfig->EffectiveRules) {
++        this->CI.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
++            convertDiagnosticLevel(EffectiveRule.second.Severity),
++            (EffectiveRule.second.Rule->ErrorMessage + " [-W" +
++             EffectiveRule.second.Rule->Name + "]"),
++            EffectiveRule.second.Rule->Name);
++      }
++
+       // Otherwise, this is the effective config for this directory.
+       this->CreatedEffectiveConfigs.push_back(EffectiveConfig);
+       DirState.Materialized = true;
+@@ -1508,9 +1645,12 @@ private:
+           clang::DiagnosticIDs::Level DiagnosticLevel =
+               convertDiagnosticLevel(this->EffectiveRule.Severity);
+           auto CallsiteDiagID =
+-              this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+-                  DiagnosticLevel, this->EffectiveRule.Rule->ErrorMessage);
+-          this->AST.getDiagnostics().Report(CallsiteLoc, CallsiteDiagID);
++              this->AST.getDiagnostics().getDiagnosticIDs()->getExistingCustomDiagID(
++                      this->EffectiveRule.Rule->Name, DiagnosticLevel);
++          assert(
++              CallsiteDiagID
++                  .has_value() /* expected diagnostics to have been created */);
++          this->AST.getDiagnostics().Report(CallsiteLoc, CallsiteDiagID.value());
+         }
+ 
+         // Report any additional hints if they're present.
+@@ -1806,94 +1946,13 @@ public:
+   virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
+                                 SrcMgr::CharacteristicKind FileType,
+                                 FileID PrevFID, SourceLocation Loc) override {
+-    SourceManager &SrcMgr = CI.getSourceManager();
+-    OptionalFileEntryRef OptionalFileEntryRef =
+-        SrcMgr.getFileEntryRefForID(FID);
+-    if (!OptionalFileEntryRef.has_value()) {
+-      // If there's no file entry for the new file, we don't process it.
+-      return;
+-    }
+-
+-    DirectoryEntryRef ContainingDirectory = OptionalFileEntryRef->getDir();
+-    if (!State->Dirs.contains(ContainingDirectory)) {
+-      RULESET_TIME_REGION_BEFORE_ANALYSIS(this->CI, Timer,
+-                                          this->State->getTiming(),
+-                                          RulesetLoadClangRulesTimer);
+-
+-      // This leaf directory hasn't been seen before. We need to make an
+-      // absolute path with '.' entries removed so that we can start
+-      // traversing up the directory tree.
+-      llvm::SmallString<256> LeafAbsolutePath(ContainingDirectory.getName());
+-      CI.getFileManager().makeAbsolutePath(LeafAbsolutePath);
+-      llvm::sys::path::remove_dots(LeafAbsolutePath, true);
+-
+-      // Track our current absolute path as we move upwards from the leaf.
+-      llvm::StringRef CurrentAbsolutePath = LeafAbsolutePath;
+-
+-      // Starting at the current directory, search upwards for .clang-rules
+-      // files.
+-      while (!State->Dirs.contains(ContainingDirectory)) {
+-        // Convert to an absolute path, since we might need to traverse up out
+-        // of the working directory to find our .clangrules files.
+-        // Go check this directory for a .clangrules file.
+-        llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
+-        llvm::sys::path::append(ClangRulesPath, ".clang-rules");
+-        llvm::Expected<FileEntryRef> ClangRulesFile =
+-            CI.getFileManager().getFileRef(ClangRulesPath, true, true);
+-        if (ClangRulesFile) {
+-          // We got a .clangrules file in this directory; load it into the
+-          // Clang source manager so we can report diagnostics etc.
+-          clang::FileID ClangRulesFileID =
+-              CI.getSourceManager().getOrCreateFileID(
+-                  ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
+-          State->Dirs[ContainingDirectory].ActualOnDiskConfigs =
+-              State->loadClangRulesFromPreprocessor(ClangRulesFileID);
++    State->lexedFileChanged(FID, Reason, FileType, PrevFID, Loc);
++  }
+ 
+-          // Add the .clang-rules to the dependencies so that external tools
+-          // such as UBT know to build again when the rules file changes.
+-          //
+-          // @note: It's impossible for us to notify external tools of paths
+-          // that *might* influence compilation if a new .clang-rules file is
+-          // added to the folder hierarchy, since UBT assumes all dependencies
+-          // are files that exist (so we can't even emit the directory whose
+-          // last modified time would change when a file is added or deleted).
+-          CI.getDependencyOutputOpts().ExtraDeps.push_back(
+-              std::pair<std::string, ExtraDepKind>(
+-                  ClangRulesPath, ExtraDepKind::EDK_DepFileEntry));
+-        } else {
+-          // We did not get a .clangrules file in this directory; cache that
+-          // it is empty.
+-          consumeError(ClangRulesFile.takeError());
+-          State->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
+-        }
+-        // Modify CurrentAbsolutePath so that it contains the next parent path
+-        // to evaluate.
+-        RULESET_TRACE_CONFIG("Computed parent directory of '"
+-                             << CurrentAbsolutePath);
+-        CurrentAbsolutePath = llvm::sys::path::parent_path(CurrentAbsolutePath);
+-        RULESET_TRACE_CONFIG_NO_PREFIX("' as '" << CurrentAbsolutePath
+-                                                << "'\n");
+-        if (CurrentAbsolutePath.empty() ||
+-            (llvm::sys::path::is_style_windows(
+-                 llvm::sys::path::Style::native) &&
+-             CurrentAbsolutePath.ends_with(":"))) {
+-          // No further parent directories.
+-          break;
+-        } else {
+-          llvm::Expected<DirectoryEntryRef> OptionalParentDirectory =
+-              CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
+-          if (!OptionalParentDirectory) {
+-            // Can't get parent directory.
+-            break;
+-          } else {
+-            // Loop again with the new parent directory.
+-            State->Dirs[ContainingDirectory].ParentDirectory =
+-                OptionalParentDirectory.get();
+-            ContainingDirectory = OptionalParentDirectory.get();
+-          }
+-        }
+-      }
+-    }
++  virtual void PragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
++                                diag::Severity mapping,
++                                StringRef Str) override {
++    State->pragmaDiagnostic(Loc, Namespace, mapping, Str);
+   }
+ 
+   virtual void InclusionDirective(SourceLocation HashLoc,
+diff --git a/clang/lib/Lex/Pragma.cpp b/clang/lib/Lex/Pragma.cpp
+index 499813f8ab7d..dd282d177341 100644
+--- a/clang/lib/Lex/Pragma.cpp
++++ b/clang/lib/Lex/Pragma.cpp
+@@ -1349,6 +1349,11 @@ public:
+                                                 : diag::Flavor::Remark;
+     StringRef Group = StringRef(WarningName).substr(2);
+     bool unknownDiag = false;
++    // @unreal: BEGIN
++    // @note: This is moved to give callbacks an opportunity to register diagnostics.
++    if (Callbacks)
++      Callbacks->PragmaDiagnostic(DiagLoc, Namespace, SV, WarningName);
++    // @unreal: END
+     if (Group == "everything") {
+       // Special handling for pragma clang diagnostic ... "-Weverything".
+       // There is no formal group named "everything", so there has to be a
+@@ -1360,8 +1365,6 @@ public:
+     if (unknownDiag)
+       PP.Diag(StringLoc, diag::warn_pragma_diagnostic_unknown_warning)
+         << WarningName;
+-    else if (Callbacks)
+-      Callbacks->PragmaDiagnostic(DiagLoc, Namespace, SV, WarningName);
+   }
+ };
+ 
+-- 
+2.50.1.windows.1
+

@@ -1,0 +1,2462 @@
+From 249f702fee4c223f11f6a5450dce61d8b2d8d7a4 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 30 Jul 2024 01:15:31 +1000
+Subject: [PATCH] Add support for IWYU analysis
+
+---
+ clang/include/clang/Basic/DiagnosticGroups.td |    1 +
+ .../clang/Basic/DiagnosticSemaKinds.td        |    9 +
+ clang/include/clang/Parse/Parser.Unreal.h     |    1 +
+ clang/include/clang/Parse/Parser.h            |   52 +-
+ clang/include/clang/Sema/Sema.Unreal.h        |   21 +
+ clang/include/clang/Sema/Sema.h               |   24 +-
+ clang/lib/Frontend/ClangRulesets.cpp          | 1038 +++++++++++++++--
+ clang/lib/Lex/UnrealEnginePPTagger.cpp        |    2 +-
+ clang/lib/Parse/CMakeLists.txt                |    1 +
+ clang/lib/Parse/ParseDecl.cpp                 |   21 -
+ clang/lib/Parse/ParseDeclCXX.cpp              |   59 -
+ clang/lib/Parse/ParsePragma.cpp               |   41 -
+ clang/lib/Parse/Parser.Unreal.cpp             |   68 ++
+ clang/lib/Parse/Parser.cpp                    |   16 -
+ clang/lib/Sema/CMakeLists.txt                 |    1 +
+ clang/lib/Sema/Sema.ConstructorInit.Unreal.h  |    1 +
+ clang/lib/Sema/Sema.Unreal.cpp                |  167 +++
+ clang/lib/Sema/Sema.cpp                       |    2 +-
+ clang/lib/Sema/SemaAttr.cpp                   |  105 --
+ clang/lib/Sema/SemaDecl.cpp                   |   21 +-
+ 20 files changed, 1235 insertions(+), 416 deletions(-)
+ create mode 100644 clang/include/clang/Parse/Parser.Unreal.h
+ create mode 100644 clang/include/clang/Sema/Sema.Unreal.h
+ create mode 100644 clang/lib/Parse/Parser.Unreal.cpp
+ create mode 100644 clang/lib/Sema/Sema.ConstructorInit.Unreal.h
+ create mode 100644 clang/lib/Sema/Sema.Unreal.cpp
+
+diff --git a/clang/include/clang/Basic/DiagnosticGroups.td b/clang/include/clang/Basic/DiagnosticGroups.td
+index baf2136dd252..59c2cd7efbdc 100644
+--- a/clang/include/clang/Basic/DiagnosticGroups.td
++++ b/clang/include/clang/Basic/DiagnosticGroups.td
+@@ -1556,6 +1556,7 @@ def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInCon
+ 
+ // @unreal: BEGIN
+ def UnrealEngine : DiagGroup<"unreal-engine">;
++def IncludeWhatYouUse : DiagGroup<"include-what-you-use">;
+ // @unreal: END
+ 
+ // Warnings and notes related to the function effects system underlying
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index b38397832079..60de5cca15b4 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3533,6 +3533,15 @@ def warn_unreal_data_discarded_on_new_specifier : Warning<
+   InGroup<UnrealEngine>;
+ def note_unreal_data_previous_location : Note<
+   "previously discarded metadata was located here">;
++def err_unreal_annotation_found_in_unexpected_place : Error<
++  "unreal engine macro used in unexpected place">;
++def warn_iwyu_remove_unused_header : Warning<
++  "#include header is completely unused and can be removed">, 
++  InGroup<IncludeWhatYouUse>;
++def warn_iwyu_replace_unused_header : Warning<
++  "#include header does not contain any immediate dependency "
++  "and can be replaced with an #include to '%0' instead">, 
++  InGroup<IncludeWhatYouUse>;
+ // @unreal: END
+ 
+ def err_anonymous_property: Error<
+diff --git a/clang/include/clang/Parse/Parser.Unreal.h b/clang/include/clang/Parse/Parser.Unreal.h
+new file mode 100644
+index 000000000000..6416e87a8bbc
+--- /dev/null
++++ b/clang/include/clang/Parse/Parser.Unreal.h
+@@ -0,0 +1 @@
++void PPLexWithUnrealAnnotationTokens();
+\ No newline at end of file
+diff --git a/clang/include/clang/Parse/Parser.h b/clang/include/clang/Parse/Parser.h
+index b4a3fd1bb282..68b6d982168e 100644
+--- a/clang/include/clang/Parse/Parser.h
++++ b/clang/include/clang/Parse/Parser.h
+@@ -543,6 +543,10 @@ public:
+     return ParseTopLevelDecl(Result, IS);
+   }
+ 
++  // @unreal: BEGIN
++  #include "Parser.Unreal.h"
++  // @unreal: END
++
+   /// ConsumeToken - Consume the current 'peek token' and lex the next one.
+   /// This does not work with special tokens: string literals, code completion,
+   /// annotation tokens and balanced tokens must be handled using the specific
+@@ -552,7 +556,9 @@ public:
+     assert(!isTokenSpecial() &&
+            "Should consume special tokens with Consume*Token");
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return PrevTokLocation;
+   }
+ 
+@@ -562,7 +568,9 @@ public:
+     assert(!isTokenSpecial() &&
+            "Should consume special tokens with Consume*Token");
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return true;
+   }
+ 
+@@ -640,7 +648,9 @@ private:
+   void UnconsumeToken(Token &Consumed) {
+       Token Next = Tok;
+       PP.EnterToken(Consumed, /*IsReinject*/true);
+-      PP.Lex(Tok);
++      // @unreal: BEGIN
++      PPLexWithUnrealAnnotationTokens();
++      // @unreal: END
+       PP.EnterToken(Next, /*IsReinject*/true);
+   }
+ 
+@@ -648,7 +658,9 @@ private:
+     assert(Tok.isAnnotation() && "wrong consume method");
+     SourceLocation Loc = Tok.getLocation();
+     PrevTokLocation = Tok.getAnnotationEndLoc();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return Loc;
+   }
+ 
+@@ -663,7 +675,9 @@ private:
+       --ParenCount;       // Don't let unbalanced )'s drive the count negative.
+     }
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return PrevTokLocation;
+   }
+ 
+@@ -679,7 +693,9 @@ private:
+     }
+ 
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return PrevTokLocation;
+   }
+ 
+@@ -695,7 +711,9 @@ private:
+     }
+ 
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return PrevTokLocation;
+   }
+ 
+@@ -707,7 +725,9 @@ private:
+     assert(isTokenStringLiteral() &&
+            "Should only consume string literals with this method");
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return PrevTokLocation;
+   }
+ 
+@@ -719,7 +739,9 @@ private:
+   SourceLocation ConsumeCodeCompletionToken() {
+     assert(Tok.is(tok::code_completion));
+     PrevTokLocation = Tok.getLocation();
+-    PP.Lex(Tok);
++    // @unreal: BEGIN
++    PPLexWithUnrealAnnotationTokens();
++    // @unreal: END
+     return PrevTokLocation;
+   }
+ 
+@@ -767,18 +789,6 @@ private:
+   /// #pragma GCC visibility...
+   void HandlePragmaVisibility();
+ 
+-  // @unreal: BEGIN
+-  /// Consume any and all Unreal Engine tokens into the stack.
+-  void ConsumePragmaUnreal();
+-
+-  /// Checks that there aren't any Unreal tokens on the stack.
+-  void CheckNoPragmaUnreal();
+-
+-  /// Handle Unreal Engine semantics.
+-  void HandlePragmaUnreal(tok::TokenKind Kind,
+-                          const UnrealSpecifier &UnrealData);
+-  // @unreal: END
+-
+   /// Handle the annotation token produced for
+   /// #pragma pack...
+   void HandlePragmaPack();
+diff --git a/clang/include/clang/Sema/Sema.Unreal.h b/clang/include/clang/Sema/Sema.Unreal.h
+new file mode 100644
+index 000000000000..e3c96c85c4ae
+--- /dev/null
++++ b/clang/include/clang/Sema/Sema.Unreal.h
+@@ -0,0 +1,21 @@
++// Unreal stacks.
++struct UnrealSpecifierSema {
++  tok::TokenKind Kind;
++  clang::UnrealSpecifier SpecData;
++  clang::SourceLocation Loc;
++  UnrealSpecifierSema(tok::TokenKind InKind,
++                      const clang::UnrealSpecifier &InSpecData,
++                      const clang::SourceLocation &InLoc)
++      : Kind(InKind), SpecData(InSpecData), Loc(InLoc){};
++};
++std::vector<UnrealSpecifierSema> UnrealStack;
++std::map<std::string, CXXRecordDecl *>
++    ExpectedIInterfaceToUInterfaceAttachments;
++
++void ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
++                      const UnrealSpecifier &UnrealData);
++
++/// Called to add specifiers from the Unreal stack.
++void AddUnrealSpecifiersForDecl(Decl *RD);
++
++void ProcessUnrealInterfaceMappings(TagDecl* New);
+\ No newline at end of file
+diff --git a/clang/include/clang/Sema/Sema.h b/clang/include/clang/Sema/Sema.h
+index 70f755a96325..8383ba23320e 100644
+--- a/clang/include/clang/Sema/Sema.h
++++ b/clang/include/clang/Sema/Sema.h
+@@ -1730,19 +1730,7 @@ public:
+   PragmaStack<bool> StrictGuardStackCheckStack;
+ 
+   // @unreal: BEGIN
+-  // Unreal stacks.
+-  struct UnrealSpecifierSema {
+-    tok::TokenKind Kind;
+-    clang::UnrealSpecifier SpecData;
+-    clang::SourceLocation Loc;
+-    UnrealSpecifierSema(tok::TokenKind InKind,
+-                        const clang::UnrealSpecifier &InSpecData,
+-                        const clang::SourceLocation &InLoc)
+-        : Kind(InKind), SpecData(InSpecData), Loc(InLoc){};
+-  };
+-  std::vector<UnrealSpecifierSema> UnrealStack;
+-  std::map<std::string, CXXRecordDecl *>
+-      ExpectedIInterfaceToUInterfaceAttachments;
++  #include "Sema.Unreal.h"
+   // @unreal: END
+ 
+   // This stack tracks the current state of Sema.CurFPFeatures.
+@@ -1871,11 +1859,6 @@ public:
+   void ActOnPragmaOptionsAlign(PragmaOptionsAlignKind Kind,
+                                SourceLocation PragmaLoc);
+ 
+-  // @unreal: BEGIN
+-  void ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+-                       const UnrealSpecifier &UnrealData);
+-  // @unreal: END
+-
+   /// ActOnPragmaPack - Called on well formed \#pragma pack(...).
+   void ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
+                        StringRef SlotLabel, Expr *Alignment);
+@@ -2065,11 +2048,6 @@ public:
+   /// Called to set exception behavior for floating point operations.
+   void setExceptionMode(SourceLocation Loc, LangOptions::FPExceptionModeKind);
+ 
+-  // @unreal: BEGIN
+-  /// Called to add specifiers from the Unreal stack.
+-  void AddUnrealSpecifiersForDecl(Decl *RD);
+-  // @unreal: END
+-
+   /// PushNamespaceVisibilityAttr - Note that we've entered a
+   /// namespace with a visibility attribute.
+   void PushNamespaceVisibilityAttr(const VisibilityAttr *Attr,
+diff --git a/clang/lib/Frontend/ClangRulesets.cpp b/clang/lib/Frontend/ClangRulesets.cpp
+index e50c72de87d2..a5dc5191dded 100644
+--- a/clang/lib/Frontend/ClangRulesets.cpp
++++ b/clang/lib/Frontend/ClangRulesets.cpp
+@@ -1,11 +1,14 @@
+ #include "ClangRulesets.h"
+ #include "clang/AST/AST.h"
+ #include "clang/AST/ASTConsumer.h"
++#include "clang/AST/DeclBase.h"
+ #include "clang/ASTMatchers/ASTMatchFinder.h"
+ #include "clang/ASTMatchers/Dynamic/Parser.h"
++#include "clang/Basic/DiagnosticSema.h"
+ #include "clang/Basic/SourceMgrAdapter.h"
+ #include "clang/Lex/PPCallbacks.h"
+ #include "clang/Lex/Preprocessor.h"
++#include "clang/Sema/Lookup.h"
+ #include "llvm/Support/Mutex.h"
+ #include "llvm/Support/ThreadPool.h"
+ #include "llvm/Support/YAMLParser.h"
+@@ -18,29 +21,171 @@ using namespace clang;
+ 
+ #define RULESET_ENABLE_TIMING 0
+ #define RULESET_ENABLE_TIMING_ALWAYS 0
+-#define RULESET_ENABLE_TRACING 0
+-
+-#if RULESET_ENABLE_TRACING
+-#define RULESET_TRACE(x) llvm::errs() << x;
++#define RULESET_ENABLE_TRACING_CORE 0
++#define RULESET_ENABLE_TRACING_CONFIG 0
++#define RULESET_ENABLE_TRACING_CONTEXT 0
++#define RULESET_ENABLE_TRACING_MATCHER 0
++#define RULESET_ENABLE_TRACING_RULESET 0
++#define RULESET_ENABLE_TRACING_IWYU 0
++#define RULESET_ENABLE_TRACING_IWYU_DECL 0
++#define RULESET_ENABLE_TRACING_IWYU_PREPROCESSOR 0
++#define RULESET_SKIP_ALL_ANALYSIS 0
++
++#if RULESET_ENABLE_TRACING_CORE
++#define RULESET_TRACE_CORE(x) llvm::errs() << "Core: " << x;
++#else
++#define RULESET_TRACE_CORE(x)
++#endif
++#if RULESET_ENABLE_TRACING_CONFIG
++#define RULESET_TRACE_CONFIG(x) llvm::errs() << "Config: " << x;
++#define RULESET_TRACE_CONFIG_NO_PREFIX(x) llvm::errs() << x;
++#else
++#define RULESET_TRACE_CONFIG(x)
++#define RULESET_TRACE_CONFIG_NO_PREFIX(x)
++#endif
++#if RULESET_ENABLE_TRACING_CONTEXT
++#define RULESET_TRACE_CONTEXT(x) llvm::errs() << "Context: " << x;
++#else
++#define RULESET_TRACE_CONTEXT(x)
++#endif
++#if RULESET_ENABLE_TRACING_MATCHER
++#define RULESET_TRACE_MATCHER(x) llvm::errs() << "Matcher: " << x;
++#else
++#define RULESET_TRACE_MATCHER(x)
++#endif
++#if RULESET_ENABLE_TRACING_RULESET
++#define RULESET_TRACE_RULESET(x) llvm::errs() << "Ruleset: " << x;
++#define RULESET_TRACE_RULESET_MUTEX(m, x)                                      \
++  {                                                                            \
++    m.lock();                                                                  \
++    llvm::errs() << "Ruleset:" << x;                                           \
++    m.unlock();                                                                \
++  }
++#define RULESET_TRACE_RULESET_MUTEX_WITH_DECL_DUMP(m, d, x)                    \
++  {                                                                            \
++    m.lock();                                                                  \
++    llvm::errs() << "Ruleset:" << x;                                           \
++    d->dump();                                                                 \
++    m.unlock();                                                                \
++  }
++#else
++#define RULESET_TRACE_RULESET(x)
++#define RULESET_TRACE_RULESET_MUTEX(m, x)
++#define RULESET_TRACE_RULESET_MUTEX_WITH_DECL_DUMP(m, d, x)
++#endif
++#if RULESET_ENABLE_TRACING_IWYU
++#define RULESET_TRACE_IWYU(x) llvm::errs() << "IWYU: " << x;
++#define RULESET_TRACE_IWYU_MUTEX(m, x)                                         \
++  {                                                                            \
++    m.lock();                                                                  \
++    llvm::errs() << x;                                                         \
++    m.unlock();                                                                \
++  }
+ #else
+-#define RULESET_TRACE(x)
++#define RULESET_TRACE_IWYU(x)
++#define RULESET_TRACE_IWYU_MUTEX(m, x)
++#endif
++#if RULESET_ENABLE_TRACING_IWYU_DECL
++#define RULESET_TRACE_IWYU_DECL_MUTEX_WITH_DECL_DUMP(m, d, x)                  \
++  {                                                                            \
++    m.lock();                                                                  \
++    llvm::errs() << "IWYU C++ decl:" << x;                                     \
++    d->dump();                                                                 \
++    m.unlock();                                                                \
++  }
++#else
++#define RULESET_TRACE_IWYU_DECL_MUTEX_WITH_DECL_DUMP(m, d, x)
++#endif
++#if RULESET_ENABLE_TRACING_IWYU_PREPROCESSOR
++#define RULESET_TRACE_IWYU_PREPROCESSOR(x)                                     \
++  llvm::errs() << "IWYU preprocessor: " << x;
++#else
++#define RULESET_TRACE_IWYU_PREPROCESSOR(x)
+ #endif
+ 
+ #if RULESET_ENABLE_TIMING
+ #if RULESET_ENABLE_TIMING_ALWAYS
+-#define RULESET_TIME_REGION(CI, Name, Timing, Timer)                           \
+-  llvm::TimeRegion Name((Timing) == nullptr ? nullptr : ((Timing)->Timer.get()))
++#define RULESET_TIME_REGION_ANALYSIS(CI, Name, Timing)                         \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      nullptr, (Timing) == nullptr                                             \
++                   ? nullptr                                                   \
++                   : ((Timing)->RulesetAnalysisOtherTimer.get()))
++#define RULESET_TIME_REGION_BEFORE_ANALYSIS(CI, Name, Timing, Timer)           \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      nullptr, (Timing) == nullptr ? nullptr : ((Timing)->Timer.get()))
++#define RULESET_TIME_REGION_DURING_ANALYSIS(CI, Name, Timing, Timer)           \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      (Timing) == nullptr ? nullptr                                            \
++                          : ((Timing)->RulesetAnalysisOtherTimer.get()),       \
++      (Timing) == nullptr ? nullptr : ((Timing)->Timer.get()))
++#define RULESET_TIME_REGION_DURING_ANALYSIS_NESTED(CI, Name, Timing,           \
++                                                   CurrentTimer, DesiredTimer) \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      (Timing) == nullptr ? nullptr : ((Timing)->CurrentTimer.get()),          \
++      (Timing) == nullptr ? nullptr : ((Timing)->DesiredTimer.get()))
+ #else
+-#define RULESET_TIME_REGION(CI, Name, Timing, Timer)                           \
+-  llvm::TimeRegion Name(                                                       \
++#define RULESET_TIME_REGION_ANALYSIS(CI, Name, Timing)                         \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      nullptr, (!(CI).hasFrontendTimer())                                      \
++                   ? nullptr                                                   \
++                   : ((Timing) == nullptr                                      \
++                          ? nullptr                                            \
++                          : ((Timing)->RulesetAnalysisOtherTimer.get())))
++#define RULESET_TIME_REGION_BEFORE_ANALYSIS(CI, Name, Timing, Timer)           \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      nullptr,                                                                 \
++      (!(CI).hasFrontendTimer())                                               \
++          ? nullptr                                                            \
++          : ((Timing) == nullptr ? nullptr : ((Timing)->Timer.get())))
++#define RULESET_TIME_REGION_DURING_ANALYSIS(CI, Name, Timing, Timer)           \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      (!(CI).hasFrontendTimer())                                               \
++          ? nullptr                                                            \
++          : ((Timing) == nullptr                                               \
++                 ? nullptr                                                     \
++                 : ((Timing)->RulesetAnalysisOtherTimer.get())),               \
+       (!(CI).hasFrontendTimer())                                               \
+           ? nullptr                                                            \
+           : ((Timing) == nullptr ? nullptr : ((Timing)->Timer.get())))
++#define RULESET_TIME_REGION_DURING_ANALYSIS_NESTED(CI, Name, Timing,           \
++                                                   CurrentTimer, DesiredTimer) \
++  clang::rulesets::RulesetTimeRegion Name(                                     \
++      (!(CI).hasFrontendTimer())                                               \
++          ? nullptr                                                            \
++          : ((Timing) == nullptr ? nullptr : ((Timing)->CurrentTimer.get())),  \
++      (!(CI).hasFrontendTimer())                                               \
++          ? nullptr                                                            \
++          : ((Timing) == nullptr ? nullptr : ((Timing)->DesiredTimer.get())))
+ #endif
+ #else
+-#define RULESET_TIME_REGION(CI, Name, Timing, Timer)
++#define RULESET_TIME_REGION_ANALYSIS(CI, Name, Timing)
++#define RULESET_TIME_REGION_BEFORE_ANALYSIS(CI, Name, Timing, Timer)
++#define RULESET_TIME_REGION_DURING_ANALYSIS(CI, Name, Timing, Timer)
++#define RULESET_TIME_REGION_DURING_ANALYSIS_NESTED(CI, Name, Timing,           \
++                                                   CurrentTimer, DesiredTimer)
+ #endif
+ 
++namespace clang::rulesets {
++
++class RulesetTimeRegion : public llvm::TimeRegion {
++private:
++  llvm::Timer *SuspendedTimer;
++
++public:
++  explicit RulesetTimeRegion(llvm::Timer *SuspendingTimer,
++                             llvm::Timer *ActiveTimer)
++      : llvm::TimeRegion(ActiveTimer), SuspendedTimer(SuspendingTimer) {
++    if (SuspendingTimer)
++      SuspendingTimer->stopTimer();
++  }
++  ~RulesetTimeRegion() {
++    if (SuspendedTimer)
++      SuspendedTimer->startTimer();
++  }
++};
++
++} // namespace clang::rulesets
++
+ namespace clang::rulesets::config {
+ 
+ /// The severity level that diagnostics should emit at for a particular Clang
+@@ -63,11 +208,24 @@ enum ClangRulesSeverity : int8_t {
+   CRS_Error,
+ };
+ 
+-/// Determines whether the Clang AST matcher operates in "AsIs" or "IgnoreUnlessSpelledInSource" traversal mode.
++/// Determines whether IWYU analysis should be enabled for files in this folder.
++enum ClangRulesIWYUAnalysis : int8_t {
++  /// IWYU analysis is not turned on or off, and the setting will be inherited
++  /// from the parent folder.
++  CRIA_NotSet,
++  /// IWYU analysis is turned off.
++  CRIA_Off,
++  /// IWYU analysis is turned on.
++  CRIA_On,
++};
++
++/// Determines whether the Clang AST matcher operates in "AsIs" or
++/// "IgnoreUnlessSpelledInSource" traversal mode.
+ enum ClangRulesTraversalMode : int8_t {
+   /// Traverse AST nodes even if they don't exist in source code.
+   CRTM_AsIs,
+-  /// Only traverse into AST nodes that are explicitly present in the source code.
++  /// Only traverse into AST nodes that are explicitly present in the source
++  /// code.
+   CRTM_IgnoreUnlessSpelledInSource,
+ };
+ 
+@@ -162,6 +320,8 @@ struct ClangRules {
+   std::vector<ClangRulesRule> Rules;
+   /// The list of rulesets that are defined in this document.
+   std::vector<ClangRulesRuleset> Rulesets;
++  /// Whether or not IWYU analysis should run and diagnostics emitted.
++  ClangRulesIWYUAnalysis IWYUAnalysis;
+ };
+ 
+ } // namespace clang::rulesets::config
+@@ -192,14 +352,48 @@ struct ScalarEnumerationTraits<clang::rulesets::config::ClangRulesSeverity> {
+   }
+ };
+ 
++template <>
++struct ScalarTraits<clang::rulesets::config::ClangRulesIWYUAnalysis> {
++  static void output(const clang::rulesets::config::ClangRulesIWYUAnalysis &Val,
++                     void *, raw_ostream &Out) {
++    switch (Val) {
++    case clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_On:
++      Out << "On";
++      break;
++    case clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_Off:
++      Out << "Off";
++      break;
++    default:
++      Out << "NotSet";
++      break;
++    }
++  }
++  static StringRef input(StringRef Scalar, void *,
++                         clang::rulesets::config::ClangRulesIWYUAnalysis &Val) {
++    if (Scalar == "NotSet") {
++      Val = clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet;
++    } else if (std::optional<bool> Parsed = parseBool(Scalar)) {
++      Val = (*Parsed)
++                ? clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_On
++                : clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_Off;
++    } else {
++      Val = clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet;
++    }
++    return StringRef();
++  }
++  static QuotingType mustQuote(StringRef) { return QuotingType::None; }
++};
++
+ template <>
+ struct ScalarEnumerationTraits<
+     clang::rulesets::config::ClangRulesTraversalMode> {
+-  static void enumeration(IO &IO, clang::rulesets::config::ClangRulesTraversalMode &Value) {
++  static void
++  enumeration(IO &IO, clang::rulesets::config::ClangRulesTraversalMode &Value) {
+     IO.enumCase(Value, "AsIs",
+                 clang::rulesets::config::ClangRulesTraversalMode::CRTM_AsIs);
+     IO.enumCase(Value, "IgnoreUnlessSpelledInSource",
+-                clang::rulesets::config::ClangRulesTraversalMode::CRTM_IgnoreUnlessSpelledInSource);
++                clang::rulesets::config::ClangRulesTraversalMode::
++                    CRTM_IgnoreUnlessSpelledInSource);
+   }
+ };
+ 
+@@ -269,6 +463,13 @@ template <> struct MappingTraits<clang::rulesets::config::ClangRules> {
+     IO.mapRequired("Namespace", Rules.Namespace);
+     IO.mapOptional("Rulesets", Rules.Rulesets);
+     IO.mapOptional("Rules", Rules.Rules);
++    if (!IO.outputting() ||
++        Rules.IWYUAnalysis !=
++            clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
++      IO.mapOptional(
++          "IWYUAnalysis", Rules.IWYUAnalysis,
++          clang::rulesets::config::ClangRulesIWYUAnalysis::CRIA_NotSet);
++    }
+   }
+ };
+ 
+@@ -284,6 +485,7 @@ struct ClangRulesetsEffectiveRule {
+ 
+ struct ClangRulesetsEffectiveConfig {
+   std::map<std::string, ClangRulesetsEffectiveRule> EffectiveRules;
++  config::ClangRulesIWYUAnalysis EffectiveIWYUAnalysis; // @note: NotSet is 0.
+ };
+ 
+ struct ClangRulesetsDirectoryState {
+@@ -307,13 +509,29 @@ class ClangRulesetsTiming {
+ public:
+   std::unique_ptr<llvm::TimerGroup> RulesetTimerGroup;
+   std::unique_ptr<llvm::Timer> RulesetLoadClangRulesTimer;
+-  std::unique_ptr<llvm::Timer> RulesetAnalysisTimer;
++  std::unique_ptr<llvm::Timer> RulesetAnalysisOtherTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisFileCheckTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisFileChangeTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisMaterializationTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisExecuteTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisScheduleTimer;
+   std::unique_ptr<llvm::Timer> RulesetAnalysisWaitTimer;
++  std::unique_ptr<llvm::Timer> RulesetIWYUAnalysisTimer;
++  std::unique_ptr<llvm::Timer> RulesetIWYUCppCaptureFileCheckTimer;
++  std::unique_ptr<llvm::Timer> RulesetIWYUCppCaptureMaterializationTimer;
++  std::unique_ptr<llvm::Timer> RulesetIWYUCppCaptureDependencyInsertTimer;
++  std::unique_ptr<llvm::Timer>
++      RulesetIWYUPreprocessorCaptureIncludeFileCheckTimer;
++  std::unique_ptr<llvm::Timer>
++      RulesetIWYUPreprocessorCaptureIncludeMaterializationTimer;
++  std::unique_ptr<llvm::Timer>
++      RulesetIWYUPreprocessorCaptureIncludeDependencyInsertTimer;
++  std::unique_ptr<llvm::Timer>
++      RulesetIWYUPreprocessorCaptureMacroFileCheckTimer;
++  std::unique_ptr<llvm::Timer>
++      RulesetIWYUPreprocessorCaptureMacroMaterializationTimer;
++  std::unique_ptr<llvm::Timer>
++      RulesetIWYUPreprocessorCaptureMacroDependencyInsertTimer;
+ 
+   ClangRulesetsTiming()
+       : RulesetTimerGroup(std::make_unique<llvm::TimerGroup>(
+@@ -321,9 +539,9 @@ public:
+         RulesetLoadClangRulesTimer(std::make_unique<llvm::Timer>(
+             "ruleset-load", "Load .clang-rules files during preprocessor",
+             *RulesetTimerGroup)),
+-        RulesetAnalysisTimer(std::make_unique<llvm::Timer>(
+-            "ruleset-analysis", "Full time spent in ruleset analysis",
+-            *RulesetTimerGroup)),
++        RulesetAnalysisOtherTimer(std::make_unique<llvm::Timer>(
++            "ruleset-analysis-other",
++            "Time spent elsewhere in ruleset analysis", *RulesetTimerGroup)),
+         RulesetAnalysisFileCheckTimer(std::make_unique<llvm::Timer>(
+             "ruleset-analysis-file-check",
+             "Checking whether or not the current file has changed as Decls are "
+@@ -351,14 +569,91 @@ public:
+             "ruleset-analysis-wait",
+             "Time spent blocked waiting for analysis to complete on background "
+             "threads",
+-            *RulesetTimerGroup)) {}
++            *RulesetTimerGroup)),
++        RulesetIWYUAnalysisTimer(std::make_unique<llvm::Timer>(
++            "ruleset-iwyu-analysis",
++            "Time spent running include-what-you-use analysis",
++            *RulesetTimerGroup)),
++        RulesetIWYUCppCaptureFileCheckTimer(std::make_unique<llvm::Timer>(
++            "ruleset-iwyu-cpp-capture-file",
++            "Time spent determining what the current file is for "
++            "include-what-you-use C++ AST dependency tracking",
++            *RulesetTimerGroup)),
++        RulesetIWYUCppCaptureMaterializationTimer(std::make_unique<llvm::Timer>(
++            "ruleset-iwyu-cpp-capture-materialize",
++            "Materializing loaded rules into effective rules during "
++            "include-what-you-use C++ AST dependency tracking",
++            *RulesetTimerGroup)),
++        RulesetIWYUCppCaptureDependencyInsertTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-cpp-capture-deps",
++                "Time spent inserting include-what-you-use dependencies into "
++                "the state for C++ AST dependency tracking",
++                *RulesetTimerGroup)),
++        RulesetIWYUPreprocessorCaptureIncludeFileCheckTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-preprocessor-capture-include-file",
++                "Time spent determining what the current file is for "
++                "include-what-you-use preprocessor #include pragma tracking",
++                *RulesetTimerGroup)),
++        RulesetIWYUPreprocessorCaptureIncludeMaterializationTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-preprocessor-capture-include-materialize",
++                "Materializing loaded rules into effective rules during "
++                "include-what-you-use preprocessor #include pragma tracking",
++                *RulesetTimerGroup)),
++        RulesetIWYUPreprocessorCaptureIncludeDependencyInsertTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-preprocessor-capture-include-deps",
++                "Time spent inserting include-what-you-use dependencies into "
++                "the state for preprocessor #include pragma tracking",
++                *RulesetTimerGroup)),
++        RulesetIWYUPreprocessorCaptureMacroFileCheckTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-preprocessor-capture-macro-file",
++                "Time spent determining what the current file is for "
++                "include-what-you-use preprocessor macro usage tracking",
++                *RulesetTimerGroup)),
++        RulesetIWYUPreprocessorCaptureMacroMaterializationTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-preprocessor-capture-macro-materialize",
++                "Materializing loaded rules into effective rules during "
++                "include-what-you-use preprocessor macro usage tracking",
++                *RulesetTimerGroup)),
++        RulesetIWYUPreprocessorCaptureMacroDependencyInsertTimer(
++            std::make_unique<llvm::Timer>(
++                "ruleset-iwyu-preprocessor-capture-macro-deps",
++                "Time spent inserting include-what-you-use dependencies into "
++                "the state for preprocessor macro usage tracking",
++                *RulesetTimerGroup)) {}
+ #endif
+ };
+ 
++clang::DiagnosticIDs::Level
++convertDiagnosticLevel(config::ClangRulesSeverity Severity) {
++  clang::DiagnosticIDs::Level DiagnosticLevel =
++      clang::DiagnosticIDs::Level::Remark;
++  switch (Severity) {
++  case config::ClangRulesSeverity::CRS_Silence:
++  case config::ClangRulesSeverity::CRS_Info:
++    DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
++    break;
++  case config::ClangRulesSeverity::CRS_Warning:
++  case config::ClangRulesSeverity::CRS_NotSet:
++    DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
++    break;
++  case config::ClangRulesSeverity::CRS_Error:
++    DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
++    break;
++  }
++  return DiagnosticLevel;
++}
++
+ class ClangRulesetsState {
+ private:
+   bool ThreadingEnabled;
+   clang::CompilerInstance &CI;
++  clang::SourceManager &SrcMgr;
+ 
+ public:
+   llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState> Dirs;
+@@ -368,13 +663,21 @@ private:
+   std::vector<ClangRulesetsEffectiveConfig *> CreatedEffectiveConfigs;
+   llvm::StringMap<config::ClangRulesRule *> RuleByNamespacedName;
+   llvm::StringMap<config::ClangRulesRuleset *> RulesetByNamespacedName;
++  llvm::DenseMap<FileEntryRef, llvm::DenseSet<FileEntryRef>> IWYUDependencyTree;
++  llvm::DenseMap<FileEntryRef, llvm::DenseMap<FileEntryRef, SourceLocation>>
++      IWYUIncludeTree;
++  llvm::DenseSet<FileEntryRef> IWYUIncludeMustTrack;
++  clang::FileID LastIWYUFileID;
++  clang::OptionalFileEntryRef LastIWYUFileEntry;
+ 
+ public:
+   ClangRulesetsState(bool InThreadingEnabled, clang::CompilerInstance &InCI)
+-      : ThreadingEnabled(InThreadingEnabled), CI(InCI), Dirs(),
++      : ThreadingEnabled(InThreadingEnabled), CI(InCI),
++        SrcMgr(InCI.getSourceManager()), Dirs(),
+         Timing(std::make_unique<ClangRulesetsTiming>()),
+         CreatedEffectiveConfigs(), RuleByNamespacedName(),
+-        RulesetByNamespacedName(){};
++        RulesetByNamespacedName(), IWYUDependencyTree(), IWYUIncludeTree(),
++        IWYUIncludeMustTrack(), LastIWYUFileID(), LastIWYUFileEntry(){};
+   ClangRulesetsState(const ClangRulesetsState &) = delete;
+   ClangRulesetsState(ClangRulesetsState &&) = delete;
+   ~ClangRulesetsState() {
+@@ -385,9 +688,410 @@ public:
+ 
+   ClangRulesetsTiming *getTiming() { return this->Timing.get(); }
+ 
++public:
++  void iwyuTrackInclusionDirective(SourceLocation IncludingHashLoc,
++                                   OptionalFileEntryRef IncludedFile) {
++
++    {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(
++          this->CI, Timer, this->Timing,
++          RulesetIWYUPreprocessorCaptureIncludeFileCheckTimer);
++      if (!IncludedFile || !IncludingHashLoc.isFileID()) {
++        return;
++      }
++      auto IncludingFileID =
++          SrcMgr.getFileID(SrcMgr.getFileLoc(IncludingHashLoc));
++      if (IncludingFileID != LastIWYUFileID) {
++        LastIWYUFileID = IncludingFileID;
++        LastIWYUFileEntry = SrcMgr.getFileEntryRefForID(LastIWYUFileID);
++      }
++      if (!LastIWYUFileEntry) {
++        return;
++      }
++    }
++    // @note: If A has IWYU enabled, and it includes B, then we must track B's
++    // includes so that transitive dependency checks work (i.e. if A uses a
++    // function from a header that B includes, we don't want to incorrectly
++    // report that the header B isn't used because we can't reach the dependency
++    // via B's headers). The IWYUIncludeMustTrack set keeps track of these
++    // files.
++    if (!IWYUIncludeMustTrack.contains(*LastIWYUFileEntry)) {
++      auto DirState = this->Dirs.find(LastIWYUFileEntry->getDir());
++      if (DirState == this->Dirs.end()) {
++        return;
++      }
++      if (!DirState->second.Materialized) {
++        RULESET_TIME_REGION_BEFORE_ANALYSIS(
++            this->CI, MaterializationTimer, this->Timing,
++            RulesetIWYUPreprocessorCaptureIncludeMaterializationTimer);
++        this->materializeDirectoryState(DirState->second, CI.getDiagnostics());
++      }
++
++      if (DirState->second.EffectiveConfig == nullptr ||
++          DirState->second.EffectiveConfig->EffectiveIWYUAnalysis !=
++              config::ClangRulesIWYUAnalysis::CRIA_On) {
++        return;
++      }
++    }
++    {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(
++          this->CI, Timer, this->Timing,
++          RulesetIWYUPreprocessorCaptureIncludeDependencyInsertTimer);
++      auto &List = IWYUIncludeTree.getOrInsertDefault(*LastIWYUFileEntry);
++      List.try_emplace(*IncludedFile, IncludingHashLoc);
++      IWYUIncludeMustTrack.insert(*IncludedFile);
++      RULESET_TRACE_IWYU_PREPROCESSOR(
++          "File '" << LastIWYUFileEntry->getName() << "' includes file '"
++                   << IncludedFile->getName() << "'\n")
++    }
++  }
++
++  void iwyuTrackMacroUsage(const MacroDefinition &MD, SourceRange SourceRange) {
++    llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState>::iterator
++        DirState;
++    const MacroInfo *MI;
++    {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(
++          this->CI, Timer, this->Timing,
++          RulesetIWYUPreprocessorCaptureMacroFileCheckTimer);
++      MI = MD.getMacroInfo();
++      if (MI == nullptr) {
++        return;
++      }
++      auto UsageFileID = SrcMgr.getFileID(SourceRange.getBegin());
++      if (UsageFileID != LastIWYUFileID) {
++        LastIWYUFileID = UsageFileID;
++        LastIWYUFileEntry = SrcMgr.getFileEntryRefForID(LastIWYUFileID);
++      }
++      if (!LastIWYUFileEntry) {
++        return;
++      }
++      DirState = this->Dirs.find(LastIWYUFileEntry->getDir());
++      if (DirState == this->Dirs.end()) {
++        return;
++      }
++    }
++    {
++      if (!DirState->second.Materialized) {
++        RULESET_TIME_REGION_BEFORE_ANALYSIS(
++            this->CI, MaterializationTimer, this->Timing,
++            RulesetIWYUPreprocessorCaptureMacroMaterializationTimer);
++        this->materializeDirectoryState(DirState->second, CI.getDiagnostics());
++      }
++
++      if (DirState->second.EffectiveConfig == nullptr ||
++          DirState->second.EffectiveConfig->EffectiveIWYUAnalysis !=
++              config::ClangRulesIWYUAnalysis::CRIA_On) {
++        return;
++      }
++    }
++    {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(
++          this->CI, Timer, this->Timing,
++          RulesetIWYUPreprocessorCaptureMacroDependencyInsertTimer);
++      auto DefinitionFile =
++          SrcMgr.getFileEntryRefForID(SrcMgr.getFileID(MI->getDefinitionLoc()));
++      if (!DefinitionFile) {
++        return;
++      }
++      auto &List = IWYUDependencyTree.getOrInsertDefault(*LastIWYUFileEntry);
++      List.insert(*DefinitionFile);
++      RULESET_TRACE_IWYU_PREPROCESSOR(
++          "File '" << LastIWYUFileEntry->getName() << "' uses macro from file '"
++                   << DefinitionFile->getName() << "'\n")
++    }
++  }
++
++  void iwyuTrackSemaUsageDecl(llvm::DenseSet<FileEntryRef> *DepList,
++                              NamedDecl *Dest,
++                              const OptionalFileEntryRef &UsageFile,
++                              bool ScanRedecls) {
++    // Add this decl.
++    auto DestEntry = SrcMgr.getFileEntryRefForID(
++        SrcMgr.getFileID(SrcMgr.getFileLoc(Dest->getLocation())));
++    if (DestEntry) {
++      if (DepList == nullptr) {
++        DepList = &IWYUDependencyTree.getOrInsertDefault(*UsageFile);
++      }
++#if RULESET_ENABLE_TRACING_IWYU
++      if (!DepList->contains(*DestEntry)) {
++        RULESET_TRACE_IWYU("C++ sema dependency: '"
++                           << UsageFile->getName() << "' depends on decl '"
++                           << Dest->getDeclName() << "' ('"
++                           << Dest->getDeclKindName() << "') in '"
++                           << DestEntry->getName() << "'\n")
++      }
++#endif
++      DepList->insert(*DestEntry);
++    } else {
++      RULESET_TRACE_IWYU("C++ sema dependency: skipped (no file location)\n")
++    }
++
++    // Also add dependencies on the underlying decl for things that have been
++    // aliased.
++    NamedDecl *UnderlyingDecl = Dest->getUnderlyingDecl();
++    if (UnderlyingDecl != nullptr && UnderlyingDecl != Dest) {
++      RULESET_TRACE_IWYU("C++ sema dependency had underlying decl.\n")
++      this->iwyuTrackSemaUsageDecl(DepList, UnderlyingDecl, UsageFile,
++                                   ScanRedecls);
++    }
++
++    // If this is a tag decl, add a dependency on all non-forward redeclarations
++    // to catch scenarios where a forward declaration occurs after the real
++    // declaration due to header include ordering.
++    if (ScanRedecls && isa<TagDecl>(Dest)) {
++      TagDecl *TD = cast<TagDecl>(Dest);
++      for (const auto &Redecl : TD->redecls()) {
++        if (Redecl == nullptr) {
++          continue;
++        }
++        if (Redecl == Dest) {
++          RULESET_TRACE_IWYU(
++              "C++ sema dependency redecl: (same) '"
++              << Redecl->getDeclName() << "' ('"
++              << ((DeclContext *)Redecl)->getDeclKindName() << "') "
++              << Redecl->getLocation().printToString(SrcMgr) << "\n")
++          continue;
++        }
++        if (!Redecl->isCompleteDefinition()) {
++          RULESET_TRACE_IWYU(
++              "C++ sema dependency redecl: (incomplete) '"
++              << Redecl->getDeclName() << "' ('"
++              << ((DeclContext *)Redecl)->getDeclKindName() << "') "
++              << Redecl->getLocation().printToString(SrcMgr) << "\n")
++          continue;
++        }
++        RULESET_TRACE_IWYU(
++            "C++ sema dependency redecl: (recursing) '"
++            << Redecl->getDeclName() << "' ('"
++            << ((DeclContext *)Redecl)->getDeclKindName() << "') "
++            << Redecl->getLocation().printToString(SrcMgr) << "\n")
++        this->iwyuTrackSemaUsageDecl(DepList, Redecl, UsageFile, false);
++      }
++    }
++  }
++
++  void iwyuTrackSemaUsageInternal(LookupResult &Result) {
++    llvm::DenseMap<DirectoryEntryRef, ClangRulesetsDirectoryState>::iterator
++        DirState;
++    {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(this->CI, Timer, this->Timing,
++                                          RulesetIWYUCppCaptureFileCheckTimer);
++      auto FileID = SrcMgr.getFileID(SrcMgr.getFileLoc(Result.getNameLoc()));
++      if (FileID != LastIWYUFileID) {
++        LastIWYUFileID = FileID;
++        LastIWYUFileEntry = SrcMgr.getFileEntryRefForID(LastIWYUFileID);
++      }
++      if (!LastIWYUFileEntry) {
++        return;
++      }
++      DirState = this->Dirs.find(LastIWYUFileEntry->getDir());
++      if (DirState == this->Dirs.end()) {
++        return;
++      }
++    }
++    {
++      if (!DirState->second.Materialized) {
++        RULESET_TIME_REGION_BEFORE_ANALYSIS(
++            this->CI, MaterializationTimer, this->Timing,
++            RulesetIWYUCppCaptureMaterializationTimer);
++        this->materializeDirectoryState(DirState->second, CI.getDiagnostics());
++      }
++
++      if (DirState->second.EffectiveConfig == nullptr ||
++          DirState->second.EffectiveConfig->EffectiveIWYUAnalysis !=
++              config::ClangRulesIWYUAnalysis::CRIA_On) {
++        return;
++      }
++    }
++    {
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(
++          this->CI, Timer, this->Timing,
++          RulesetIWYUCppCaptureDependencyInsertTimer);
++      auto UsageFile = LastIWYUFileEntry;
++      llvm::DenseSet<FileEntryRef> *DepList = nullptr;
++      for (const auto &Dest : Result) {
++        if (Dest == nullptr) {
++          continue;
++        }
++        this->iwyuTrackSemaUsageDecl(DepList, Dest, UsageFile, true);
++      }
++    }
++  }
++
++  void iwyuTrackSemaUsage(LookupResult &Result, Scope *Scope) {
++    iwyuTrackSemaUsageInternal(Result);
++  }
++
++  void iwyuTrackSemaUsage(LookupResult &Result, DeclContext *LookupCtx) {
++    iwyuTrackSemaUsageInternal(Result);
++  }
++
++private:
++  void collectIWYUDependents(FileEntryRef CurrentFile,
++                             llvm::DenseSet<FileEntryRef> &Dependents,
++                             llvm::sys::SmartMutex<true> &Mutex) {
++    Dependents.insert(CurrentFile);
++    auto ImmediateDependents = IWYUDependencyTree.find(CurrentFile);
++    if (ImmediateDependents != IWYUDependencyTree.end()) {
++      for (const auto &Dependent : ImmediateDependents->getSecond()) {
++        if (!Dependents.contains(Dependent)) {
++          collectIWYUDependents(Dependent, Dependents, Mutex);
++        }
++      }
++    }
++  }
++
++  config::ClangRulesIWYUAnalysis
++  evaluateIWYUAnalysis(FileEntryRef CurrentFile) {
++    auto DirState = Dirs.find(CurrentFile.getDir());
++    if (DirState != Dirs.end()) {
++      if (!DirState->second.Materialized) {
++        // @note: Any file that does not have a materialized state at this point
++        // has no .clang-rules file anywhere in it's hierarchy (because
++        // otherwise the top-level decl iteration would have found it), and
++        // therefore we don't need to run IWYU analysis on that file.
++        return config::ClangRulesIWYUAnalysis::CRIA_Off;
++      }
++      if (DirState->second.EffectiveConfig != nullptr) {
++        auto &IWYUAnalysis =
++            DirState->second.EffectiveConfig->EffectiveIWYUAnalysis;
++        if (IWYUAnalysis != config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
++          return IWYUAnalysis;
++        }
++      }
++    }
++    return config::ClangRulesIWYUAnalysis::CRIA_Off;
++  }
++
++  void emitUnusedInclude(FileEntryRef CurrentFile, SourceLocation SourceLoc,
++                         llvm::sys::SmartMutex<true> &Mutex, ASTContext &AST) {
++    Mutex.lock();
++    AST.getDiagnostics().Report(SourceLoc,
++                                diag::warn_iwyu_remove_unused_header);
++    Mutex.unlock();
++  }
++
++  void emitIndirectDependencyRecommendation(FileEntryRef CurrentFile,
++                                            FileEntryRef TargetFile,
++                                            SourceLocation SourceLoc,
++                                            llvm::sys::SmartMutex<true> &Mutex,
++                                            ASTContext &AST) {
++    Mutex.lock();
++    llvm::SmallString<256> TargetRelativePath(TargetFile.getName());
++    llvm::sys::path::remove_dots(TargetRelativePath, true);
++    AST.getDiagnostics().Report(SourceLoc,
++                                diag::warn_iwyu_replace_unused_header)
++        << TargetRelativePath;
++    Mutex.unlock();
++  }
++
++  bool
++  isDependencyReachedThroughFile(FileEntryRef CurrentFile,
++                                 FileEntryRef Dependency,
++                                 llvm::DenseSet<FileEntryRef> &VisitedFiles) {
++    VisitedFiles.insert(CurrentFile);
++    if (CurrentFile == Dependency) {
++      return true;
++    }
++    auto ImmediateIncludes = IWYUIncludeTree.find(CurrentFile);
++    if (ImmediateIncludes != IWYUIncludeTree.end()) {
++      for (const auto &Include : ImmediateIncludes->second) {
++        if (VisitedFiles.contains(Include.first)) {
++          continue;
++        }
++        if (isDependencyReachedThroughFile(Include.first, Dependency,
++                                           VisitedFiles)) {
++          return true;
++        }
++      }
++    }
++    return false;
++  }
++
++  void analyseFileForIWYU(FileEntryRef CurrentFile,
++                          llvm::sys::SmartMutex<true> &Mutex, ASTContext &AST) {
++    RULESET_TRACE_IWYU_MUTEX(Mutex, "Analysing file '"
++                                        << CurrentFile.getName()
++                                        << "' for IWYU diagnostics.\n")
++    // Figure out whether we should perform IWYU analysis for the current file,
++    // and skip it if we shouldn't.
++    config::ClangRulesIWYUAnalysis EvaluatedIWYUAnalysis =
++        evaluateIWYUAnalysis(CurrentFile);
++    if (EvaluatedIWYUAnalysis == config::ClangRulesIWYUAnalysis::CRIA_Off) {
++      RULESET_TRACE_IWYU_MUTEX(
++          Mutex, "Skipping file '"
++                     << CurrentFile.getName()
++                     << "' because IWYU analysis is turned off.\n")
++      return;
++    }
++
++    // Get our immediate includes and dependencies.
++    auto ImmediateIncludes = IWYUIncludeTree.find(CurrentFile);
++    auto Dependencies = IWYUDependencyTree.find(CurrentFile);
++    if (ImmediateIncludes == IWYUIncludeTree.end()) {
++      // We don't include anything, so no analysis needs to be performed.
++      return;
++    }
++    bool HasAnyDependencies = Dependencies != IWYUDependencyTree.end();
++
++    // Track files that we depend on that are immediately included.
++    llvm::DenseSet<FileEntryRef> ImmediatelyUsedDependents;
++
++    // Track files that we include but don't have an immediate dependency on.
++    llvm::DenseMap<FileEntryRef, SourceLocation> IncludesNotDependedOn;
++
++    // For each include, see what isn't in the immediate dependency list.
++    RULESET_TRACE_IWYU_MUTEX(Mutex, "IWYU analysis: Begin '"
++                                        << CurrentFile.getName() << "'\n")
++    if (ImmediateIncludes != IWYUIncludeTree.end()) {
++      for (const auto &Include : ImmediateIncludes->second) {
++        if (!HasAnyDependencies ||
++            !Dependencies->second.contains(Include.first)) {
++          IncludesNotDependedOn.try_emplace(Include.first, Include.second);
++        } else {
++          ImmediatelyUsedDependents.insert(Include.first);
++        }
++      }
++    }
++
++    // If we don't have any #includes that aren't yet depended on,
++    // analysis is finished.
++    if (IncludesNotDependedOn.size() == 0) {
++      return;
++    }
++
++    // Search our dependencies to find out which ones aren't directly included
++    // but are being satisifed transitively via another include, and then mark
++    // those includes as dependent on. We don't yet emit recommendations of a
++    // more narrow include, as this can be highly subjective depending on the
++    // context. Instead, we aim to just find includes that are completely
++    // unused.
++    if (HasAnyDependencies) {
++      for (const auto &Dependency : Dependencies->second) {
++        if (!ImmediatelyUsedDependents.contains(Dependency)) {
++          llvm::DenseSet<FileEntryRef> VisitedIncludes;
++          for (const auto &Include : IncludesNotDependedOn) {
++            if (isDependencyReachedThroughFile(Include.first, Dependency,
++                                               VisitedIncludes)) {
++              IncludesNotDependedOn.erase(Include.first);
++              break;
++            }
++          }
++        }
++      }
++    }
++
++    // For any includes that are completely unused, emit diagnostics for them
++    // now.
++    for (const auto &Include : IncludesNotDependedOn) {
++      emitUnusedInclude(CurrentFile, Include.second, Mutex, AST);
++    }
++  }
++
++public:
+   std::unique_ptr<std::vector<config::ClangRules>>
+-  loadClangRulesFromPreprocessor(clang::FileID &FileID,
+-                                 clang::SourceManager &SrcMgr) {
++  loadClangRulesFromPreprocessor(clang::FileID &FileID) {
+     // Set up our YAML parser.
+     SourceMgrAdapter SMAdapter(
+         SrcMgr, SrcMgr.getDiagnostics(), diag::err_clangrules_message,
+@@ -458,9 +1162,10 @@ public:
+                                         CRTM_IgnoreUnlessSpelledInSource) {
+             Rule.MatcherParsed = Rule.MatcherParsed.value().withTraversalKind(
+                 clang::TraversalKind::TK_IgnoreUnlessSpelledInSource);
+-          }
+-          else {
+-            // @note: We assume that TraversalKind::TK_AsIs will remain the default internally inside Clang and thus we don't need to modify MatcherParsed in this case.
++          } else {
++            // @note: We assume that TraversalKind::TK_AsIs will remain the
++            // default internally inside Clang and thus we don't need to modify
++            // MatcherParsed in this case.
+           }
+         }
+       }
+@@ -551,10 +1256,12 @@ public:
+   }
+ 
+ private:
+-  void applyRulesetToEffectiveRules(
+-      bool &StillValid, llvm::DenseSet<llvm::StringRef> &VisitedRulesets,
+-      const config::ClangRulesRuleset &Ruleset,
+-      ClangRulesetsEffectiveConfig *EffectiveConfig, ASTContext &AST) {
++  void
++  applyRulesetToEffectiveRules(bool &StillValid,
++                               llvm::DenseSet<llvm::StringRef> &VisitedRulesets,
++                               const config::ClangRulesRuleset &Ruleset,
++                               ClangRulesetsEffectiveConfig *EffectiveConfig,
++                               DiagnosticsEngine &DiagEngine) {
+     // Have we already visited this ruleset? This prevents recursion loops.
+     if (VisitedRulesets.contains(Ruleset.Name)) {
+       return;
+@@ -567,7 +1274,7 @@ private:
+       // ruleset is referencing a rule that isn't known.
+       auto *Rule = this->RuleByNamespacedName[RulesetRule.Name];
+       if (Rule == nullptr) {
+-        AST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
++        DiagEngine.Report(diag::err_clangrules_rule_missing)
+             << Ruleset.Name << RulesetRule.Name;
+         StillValid = false;
+       } else {
+@@ -582,18 +1289,19 @@ private:
+       // ruleset is referencing a ruleset that isn't known.
+       auto *NestedRuleset = this->RulesetByNamespacedName[RulesetRuleset.Name];
+       if (NestedRuleset == nullptr) {
+-        AST.getDiagnostics().Report(diag::err_clangrules_rule_missing)
++        DiagEngine.Report(diag::err_clangrules_rule_missing)
+             << Ruleset.Name << RulesetRuleset.Name;
+         StillValid = false;
+       } else {
+         applyRulesetToEffectiveRules(StillValid, VisitedRulesets,
+-                                     *NestedRuleset, EffectiveConfig, AST);
++                                     *NestedRuleset, EffectiveConfig,
++                                     DiagEngine);
+       }
+     }
+   }
+ 
+   void materializeDirectoryState(ClangRulesetsDirectoryState &DirState,
+-                                 ASTContext &AST) {
++                                 DiagnosticsEngine &DiagEngine) {
+     assert(!DirState.Materialized);
+ 
+     // If we have an actual on-disk configuration with at least one ruleset
+@@ -603,10 +1311,16 @@ private:
+     if (HasConfigsToMerge) {
+       HasConfigsToMerge = false;
+       for (const auto &Document : *DirState.ActualOnDiskConfigs) {
+-        for (const auto &Ruleset : Document.Rulesets) {
+-          if (!Ruleset.DefineOnly) {
+-            HasConfigsToMerge = true;
+-            break;
++        if (Document.IWYUAnalysis !=
++            config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
++          HasConfigsToMerge = true;
++        }
++        if (!HasConfigsToMerge) {
++          for (const auto &Ruleset : Document.Rulesets) {
++            if (!Ruleset.DefineOnly) {
++              HasConfigsToMerge = true;
++              break;
++            }
+           }
+         }
+       }
+@@ -620,18 +1334,20 @@ private:
+       if (DirState.ParentDirectory) {
+         auto &ParentState = this->Dirs[*DirState.ParentDirectory];
+         if (!ParentState.Materialized) {
+-          RULESET_TRACE("materializing: " << DirState.ParentDirectory->getName()
+-                                          << "\n");
++          RULESET_TRACE_CONFIG("Materializing "
++                               << DirState.ParentDirectory->getName() << "\n");
+           assert(&ParentState != &DirState);
+-          this->materializeDirectoryState(ParentState, AST);
+-          RULESET_TRACE("materializing done: "
+-                        << DirState.ParentDirectory->getName() << "\n");
++          this->materializeDirectoryState(ParentState, DiagEngine);
++          RULESET_TRACE_CONFIG("Materialized "
++                               << DirState.ParentDirectory->getName() << "\n");
+         }
+         if (ParentState.EffectiveConfig != nullptr) {
+           // Copy the effective rules (which are namespaced rule names plus the
+           // effective severity).
+           EffectiveConfig->EffectiveRules =
+               ParentState.EffectiveConfig->EffectiveRules;
++          EffectiveConfig->EffectiveIWYUAnalysis =
++              ParentState.EffectiveConfig->EffectiveIWYUAnalysis;
+         }
+       }
+ 
+@@ -647,7 +1363,12 @@ private:
+             continue;
+           }
+           this->applyRulesetToEffectiveRules(StillValid, VisitedRulesets,
+-                                             Ruleset, EffectiveConfig, AST);
++                                             Ruleset, EffectiveConfig,
++                                             DiagEngine);
++        }
++        if (Document.IWYUAnalysis !=
++            config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
++          EffectiveConfig->EffectiveIWYUAnalysis = Document.IWYUAnalysis;
+         }
+       }
+       if (!StillValid) {
+@@ -686,7 +1407,9 @@ private:
+ 
+       // If there are no effective rules remaining, materialize this directory
+       // as if there was no .clang-rules anywhere in the hierarchy.
+-      if (EffectiveConfig->EffectiveRules.size() == 0) {
++      if (EffectiveConfig->EffectiveRules.size() == 0 &&
++          EffectiveConfig->EffectiveIWYUAnalysis ==
++              config::ClangRulesIWYUAnalysis::CRIA_NotSet) {
+         delete EffectiveConfig;
+         DirState.Materialized = true;
+         DirState.EffectiveConfig = nullptr;
+@@ -706,12 +1429,12 @@ private:
+         // Materialize our parent if needed and get the config.
+         auto &ParentState = this->Dirs[*DirState.ParentDirectory];
+         if (!ParentState.Materialized) {
+-          RULESET_TRACE("materializing: " << DirState.ParentDirectory->getName()
+-                                          << "\n");
++          RULESET_TRACE_CONFIG("Materializing "
++                               << DirState.ParentDirectory->getName() << "\n");
+           assert(&ParentState != &DirState);
+-          this->materializeDirectoryState(ParentState, AST);
+-          RULESET_TRACE("materializing done: "
+-                        << DirState.ParentDirectory->getName() << "\n");
++          this->materializeDirectoryState(ParentState, DiagEngine);
++          RULESET_TRACE_CONFIG("Materialized "
++                               << DirState.ParentDirectory->getName() << "\n");
+         }
+         DirState.EffectiveConfig = ParentState.EffectiveConfig;
+         DirState.Materialized = true;
+@@ -740,8 +1463,6 @@ private:
+ 
+       virtual void run(const clang::ast_matchers::MatchFinder::MatchResult
+                            &Result) override {
+-        RULESET_TRACE("run() called for match result\n");
+-
+         // Obtain lock.
+         this->Mutex.lock();
+ 
+@@ -785,20 +1506,7 @@ private:
+           }
+ 
+           clang::DiagnosticIDs::Level DiagnosticLevel =
+-              clang::DiagnosticIDs::Level::Remark;
+-          switch (this->EffectiveRule.Severity) {
+-          case config::ClangRulesSeverity::CRS_Silence:
+-          case config::ClangRulesSeverity::CRS_Info:
+-            DiagnosticLevel = clang::DiagnosticIDs::Level::Remark;
+-            break;
+-          case config::ClangRulesSeverity::CRS_Warning:
+-          case config::ClangRulesSeverity::CRS_NotSet:
+-            DiagnosticLevel = clang::DiagnosticIDs::Level::Warning;
+-            break;
+-          case config::ClangRulesSeverity::CRS_Error:
+-            DiagnosticLevel = clang::DiagnosticIDs::Level::Error;
+-            break;
+-          }
++              convertDiagnosticLevel(this->EffectiveRule.Severity);
+           auto CallsiteDiagID =
+               this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+                   DiagnosticLevel, this->EffectiveRule.Rule->ErrorMessage);
+@@ -851,35 +1559,39 @@ private:
+       if (Rule->MatcherParsed.has_value()) {
+         auto *Callback = new InstantiatedMatcherCallback(this->Mutex, this->AST,
+                                                          EffectiveRule);
+-        RULESET_TRACE("adding dynamic matcher to finder\n");
++        RULESET_TRACE_RULESET("Adding dynamic matcher to finder.\n");
+         this->Finder->addDynamicMatcher(*Rule->MatcherParsed, Callback);
+         this->Callbacks[&EffectiveRule] = Callback;
+       }
+     }
+ 
+-    void match(clang::Decl *Decl) {
+-      RULESET_TRACE("match called for decl\n");
++    void match(const OptionalFileEntryRef &FileEntry, clang::Decl *Decl) {
++      RULESET_TRACE_RULESET_MUTEX_WITH_DECL_DUMP(
++          Mutex, Decl,
++          "Calling matchDecl for declaration in file '"
++              << (FileEntry.has_value() ? FileEntry->getName() : "") << "':\n");
+       this->Finder->matchDecl(Decl, this->AST);
+     }
+   };
+ 
+ public:
+   void runAnalysisOnTranslationUnit(ASTContext &AST) {
+-    RULESET_TIME_REGION(this->CI, Timer, this->Timing, RulesetAnalysisTimer);
++    RULESET_TIME_REGION_ANALYSIS(this->CI, Timer, this->Timing);
+ 
+     const auto *UnitDeclEntry = AST.getTranslationUnitDecl();
+     if (UnitDeclEntry == nullptr) {
+-      RULESET_TRACE(
+-          "skipping AST analysis because there's no translation unit\n");
++      RULESET_TRACE_CORE(
++          "Skipping AST analysis because there is no translation unit.\n");
+       return;
+     }
+     const SourceManager &SrcMgr = AST.getSourceManager();
+ 
+-    RULESET_TRACE("starting AST analysis\n");
++    RULESET_TRACE_CORE("Starting AST analysis.\n");
+ 
+     // Track the current file ID and current effective config, so that as we go
+     // over decls in the same source file, we don't need to redo lookups.
+     FileID CurrentFileID;
++    OptionalFileEntryRef CurrentFileEntry;
+     ClangRulesetsEffectiveConfig *CurrentEffectiveConfig = nullptr;
+ 
+     // Cached callbacks.
+@@ -890,18 +1602,43 @@ public:
+     llvm::sys::SmartMutex<true> ThreadMutex;
+     llvm::ThreadPool ThreadPool;
+ 
++    // Track a list of files that we'll run IWYU analysis on.
++    llvm::DenseSet<FileEntryRef> IWYUAnalysisFiles;
++
++    RULESET_TRACE_IWYU("IWYU preprocessor dependency: Tracking "
++                       << IWYUDependencyTree.size()
++                       << " keys in dependency tree, " << IWYUIncludeTree.size()
++                       << " keys in include tree.\n")
++
++#if RULESET_ENABLE_TRACING_CONTEXT
++    int TotalDecls = 0;
++    for (const auto &DeclEntry : UnitDeclEntry->decls()) {
++      TotalDecls++;
++    }
++#endif
++
+     // Iterate through all of the decls in the translation unit.
++#if RULESET_ENABLE_TRACING_CONTEXT
++    int CurrentDecl = 0;
++#endif
+     for (const auto &DeclEntry : UnitDeclEntry->decls()) {
++#if RULESET_ENABLE_TRACING_CONTEXT
++      CurrentDecl++;
++#endif
+       bool FileChanged = false;
+       {
+-        RULESET_TIME_REGION(this->CI, FileCheckTimer, this->Timing,
+-                            RulesetAnalysisFileCheckTimer);
++        RULESET_TIME_REGION_DURING_ANALYSIS(this->CI, FileCheckTimer,
++                                            this->Timing,
++                                            RulesetAnalysisFileCheckTimer);
+ 
+         // Get the location of this decl.
+         FileID NewFileID =
+             SrcMgr.getFileID(SrcMgr.getFileLoc(DeclEntry->getLocation()));
+         if (NewFileID.isInvalid()) {
+           // Ignore any decls that have no file ID.
++          RULESET_TRACE_CONTEXT(CurrentDecl
++                                << "/" << TotalDecls
++                                << ": Has no file ID for location.\n");
+           continue;
+         }
+ 
+@@ -917,16 +1654,27 @@ public:
+       }
+ 
+       if (FileChanged) {
+-        RULESET_TIME_REGION(this->CI, FileChangeTimer, this->Timing,
+-                            RulesetAnalysisFileChangeTimer);
++        RULESET_TIME_REGION_DURING_ANALYSIS(this->CI, FileChangeTimer,
++                                            this->Timing,
++                                            RulesetAnalysisFileChangeTimer);
+ 
+         // Try to get the file entry for the file ID.
+         auto FileEntry = SrcMgr.getFileEntryRefForID(CurrentFileID);
+         if (!FileEntry) {
+           // This is an unknown file - no rules apply.
++          RULESET_TRACE_CONTEXT(
++              CurrentDecl << "/" << TotalDecls
++                          << ": Has no file entry for current file ID.\n");
+           continue;
+         }
+ 
++        RULESET_TRACE_CONTEXT(
++            CurrentDecl << "/" << TotalDecls << ": Current file changed to '"
++                        << FileEntry->getName() << "' for decl '"
++                        << DeclEntry->getDeclKindName() << "' at "
++                        << DeclEntry->getLocation().printToString(SrcMgr)
++                        << "\n");
++
+         // Get the effective configuration that should now apply.
+         auto DirState = this->Dirs.find(FileEntry->getDir());
+         if (DirState == this->Dirs.end()) {
+@@ -936,12 +1684,16 @@ public:
+ 
+         // Materialize this directory if needed.
+         if (!DirState->second.Materialized) {
+-          RULESET_TIME_REGION(this->CI, MaterializationTimer, this->Timing,
+-                              RulesetAnalysisMaterializationTimer);
+-          this->materializeDirectoryState(DirState->second, AST);
++          RULESET_TIME_REGION_DURING_ANALYSIS_NESTED(
++              this->CI, MaterializationTimer, this->Timing,
++              RulesetAnalysisFileChangeTimer,
++              RulesetAnalysisMaterializationTimer);
++          this->materializeDirectoryState(DirState->second,
++                                          AST.getDiagnostics());
+         }
+ 
+         // Set effective configuration.
++        CurrentFileEntry = FileEntry;
+         CurrentEffectiveConfig = DirState->second.EffectiveConfig;
+ 
+         // If there is a config, instantiate the matcher we will use.
+@@ -950,16 +1702,29 @@ public:
+                                                  const_cast<ASTContext &>(AST));
+           for (const auto &EffectiveRule :
+                CurrentEffectiveConfig->EffectiveRules) {
+-            RULESET_TRACE("adding rule to matcher: " << EffectiveRule.first
+-                                                     << "\n");
++            RULESET_TRACE_MATCHER(
++                "Adding rule to matcher: " << EffectiveRule.first << "\n");
+             Matcher->addRule(EffectiveRule.second);
+           }
+-          RULESET_TRACE("instantiated matcher\n");
++          RULESET_TRACE_MATCHER("Instantiated matcher.\n");
+           SharedEffectiveConfigToInstantiatedMatchers[CurrentEffectiveConfig] =
+               Matcher;
++
++          if (CurrentEffectiveConfig->EffectiveIWYUAnalysis ==
++              config::ClangRulesIWYUAnalysis::CRIA_On) {
++            IWYUAnalysisFiles.insert(*FileEntry);
++          }
+         }
++      } else {
++        RULESET_TRACE_CONTEXT(CurrentDecl
++                              << "/" << TotalDecls
++                              << ": File remaining same for decl '"
++                              << DeclEntry->getDeclKindName() << "' at "
++                              << DeclEntry->getLocation().printToString(SrcMgr)
++                              << "\n");
+       }
+ 
++#if !RULESET_SKIP_ALL_ANALYSIS
+       // Only run matchers if this declaration has an effective config
+       // associated with it.
+       InstantiatedMatcher *Matcher =
+@@ -967,25 +1732,53 @@ public:
+       if (CurrentEffectiveConfig != nullptr) {
+         // Evaluate all of the matchers against this node.
+         if (this->ThreadingEnabled) {
+-          RULESET_TIME_REGION(this->CI, ScheduleTimer, this->Timing,
+-                              RulesetAnalysisScheduleTimer);
++          RULESET_TIME_REGION_DURING_ANALYSIS(this->CI, ScheduleTimer,
++                                              this->Timing,
++                                              RulesetAnalysisScheduleTimer);
+           ThreadPool.async(
+-              [](Decl *DeclEntry, InstantiatedMatcher *Matcher) {
+-                Matcher->match(DeclEntry);
++              [](OptionalFileEntryRef *OptionalFileEntryRef, Decl *DeclEntry,
++                 InstantiatedMatcher *Matcher) {
++                Matcher->match(*OptionalFileEntryRef, DeclEntry);
+               },
+-              DeclEntry, Matcher);
++              &CurrentFileEntry, DeclEntry, Matcher);
+         } else {
+-          RULESET_TIME_REGION(this->CI, ExecuteTimer, this->Timing,
+-                              RulesetAnalysisExecuteTimer);
+-          Matcher->match(DeclEntry);
++          RULESET_TIME_REGION_DURING_ANALYSIS(this->CI, ExecuteTimer,
++                                              this->Timing,
++                                              RulesetAnalysisExecuteTimer);
++          Matcher->match(CurrentFileEntry, DeclEntry);
+         }
+       }
++#endif
+     }
+ 
++#if !RULESET_SKIP_ALL_ANALYSIS
++    // Run IWYU analysis in parallel across the files that have IWYU analysis
++    // enabled.
++    if (IWYUAnalysisFiles.size() > 0) {
++      RULESET_TIME_REGION_DURING_ANALYSIS(this->CI, WaitTimer, this->Timing,
++                                          RulesetIWYUAnalysisTimer);
++
++      // Schedule or run IWYU analysis.
++      for (const auto &AnalysisFile : IWYUAnalysisFiles) {
++        if (this->ThreadingEnabled) {
++          ThreadPool.async(
++              [this](FileEntryRef AnalysisFile,
++                     llvm::sys::SmartMutex<true> *ThreadMutex,
++                     ASTContext *AST) {
++                this->analyseFileForIWYU(AnalysisFile, *ThreadMutex, *AST);
++              },
++              AnalysisFile, &ThreadMutex, &AST);
++        } else {
++          analyseFileForIWYU(AnalysisFile, ThreadMutex, AST);
++        }
++      }
++    }
++#endif
++
+     // Wait for matchers to run in threads.
+     if (this->ThreadingEnabled) {
+-      RULESET_TIME_REGION(this->CI, WaitTimer, this->Timing,
+-                          RulesetAnalysisWaitTimer);
++      RULESET_TIME_REGION_DURING_ANALYSIS(this->CI, WaitTimer, this->Timing,
++                                          RulesetAnalysisWaitTimer);
+       ThreadPool.wait();
+     }
+ 
+@@ -995,7 +1788,7 @@ public:
+     }
+     SharedEffectiveConfigToInstantiatedMatchers.clear();
+ 
+-    RULESET_TRACE("ending AST analysis\n");
++    RULESET_TRACE_CORE("Ending AST analysis.\n");
+   }
+ };
+ 
+@@ -1013,17 +1806,19 @@ public:
+   virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
+                                 SrcMgr::CharacteristicKind FileType,
+                                 FileID PrevFID, SourceLocation Loc) override {
+-    auto &SrcMgr = CI.getSourceManager();
+-    auto OptionalFileEntryRef = SrcMgr.getFileEntryRefForID(FID);
++    SourceManager &SrcMgr = CI.getSourceManager();
++    OptionalFileEntryRef OptionalFileEntryRef =
++        SrcMgr.getFileEntryRefForID(FID);
+     if (!OptionalFileEntryRef.has_value()) {
+       // If there's no file entry for the new file, we don't process it.
+       return;
+     }
+ 
+-    auto ContainingDirectory = OptionalFileEntryRef->getDir();
++    DirectoryEntryRef ContainingDirectory = OptionalFileEntryRef->getDir();
+     if (!State->Dirs.contains(ContainingDirectory)) {
+-      RULESET_TIME_REGION(this->CI, Timer, this->State->getTiming(),
+-                          RulesetLoadClangRulesTimer);
++      RULESET_TIME_REGION_BEFORE_ANALYSIS(this->CI, Timer,
++                                          this->State->getTiming(),
++                                          RulesetLoadClangRulesTimer);
+ 
+       // This leaf directory hasn't been seen before. We need to make an
+       // absolute path with '.' entries removed so that we can start
+@@ -1043,7 +1838,7 @@ public:
+         // Go check this directory for a .clangrules file.
+         llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
+         llvm::sys::path::append(ClangRulesPath, ".clang-rules");
+-        auto ClangRulesFile =
++        llvm::Expected<FileEntryRef> ClangRulesFile =
+             CI.getFileManager().getFileRef(ClangRulesPath, true, true);
+         if (ClangRulesFile) {
+           // We got a .clangrules file in this directory; load it into the
+@@ -1052,7 +1847,7 @@ public:
+               CI.getSourceManager().getOrCreateFileID(
+                   ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
+           State->Dirs[ContainingDirectory].ActualOnDiskConfigs =
+-              State->loadClangRulesFromPreprocessor(ClangRulesFileID, SrcMgr);
++              State->loadClangRulesFromPreprocessor(ClangRulesFileID);
+ 
+           // Add the .clang-rules to the dependencies so that external tools
+           // such as UBT know to build again when the rules file changes.
+@@ -1068,13 +1863,16 @@ public:
+         } else {
+           // We did not get a .clangrules file in this directory; cache that
+           // it is empty.
++          consumeError(ClangRulesFile.takeError());
+           State->Dirs[ContainingDirectory].ActualOnDiskConfigs = nullptr;
+         }
+         // Modify CurrentAbsolutePath so that it contains the next parent path
+         // to evaluate.
+-        RULESET_TRACE("directory: " << CurrentAbsolutePath);
++        RULESET_TRACE_CONFIG("Computed parent directory of '"
++                             << CurrentAbsolutePath);
+         CurrentAbsolutePath = llvm::sys::path::parent_path(CurrentAbsolutePath);
+-        RULESET_TRACE(" -> " << CurrentAbsolutePath << "\n");
++        RULESET_TRACE_CONFIG_NO_PREFIX("' as '" << CurrentAbsolutePath
++                                                << "'\n");
+         if (CurrentAbsolutePath.empty() ||
+             (llvm::sys::path::is_style_windows(
+                  llvm::sys::path::Style::native) &&
+@@ -1082,7 +1880,7 @@ public:
+           // No further parent directories.
+           break;
+         } else {
+-          auto OptionalParentDirectory =
++          llvm::Expected<DirectoryEntryRef> OptionalParentDirectory =
+               CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
+           if (!OptionalParentDirectory) {
+             // Can't get parent directory.
+@@ -1097,6 +1895,30 @@ public:
+       }
+     }
+   }
++
++  virtual void InclusionDirective(SourceLocation HashLoc,
++                                  const Token &IncludeTok, StringRef FileName,
++                                  bool IsAngled, CharSourceRange FilenameRange,
++                                  OptionalFileEntryRef File,
++                                  StringRef SearchPath, StringRef RelativePath,
++                                  const Module *Imported,
++                                  SrcMgr::CharacteristicKind FileType) {
++    State->iwyuTrackInclusionDirective(HashLoc, File);
++  }
++
++  virtual void MacroExpands(const Token &MacroNameTok,
++                            const MacroDefinition &MD, SourceRange Range,
++                            const MacroArgs *Args) {
++    State->iwyuTrackMacroUsage(MD, Range);
++  }
++
++  virtual void SemaSuccessfulLookup(LookupResult &R, Scope *S) {
++    State->iwyuTrackSemaUsage(R, S);
++  }
++
++  virtual void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) {
++    State->iwyuTrackSemaUsage(R, DC);
++  }
+ };
+ 
+ class ClangRulesetsConsumer : public ASTConsumer {
+@@ -1109,14 +1931,14 @@ public:
+   virtual ~ClangRulesetsConsumer() override = default;
+ 
+   void HandleTranslationUnit(ASTContext &AST) override {
+-    RULESET_TRACE("Receiving translation unit for analysis\n");
++    RULESET_TRACE_CORE("Receiving translation unit for analysis\n");
+     this->State->runAnalysisOnTranslationUnit(AST);
+   }
+ };
+ 
+ std::unique_ptr<ASTConsumer>
+ ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
+-  bool ThreadingEnabled = true;
++  bool ThreadingEnabled = false;
+ #if defined(_WIN32)
+   HMODULE DetoursHandle = GetModuleHandleW(L"UbaDetours.dll");
+   if (DetoursHandle) {
+@@ -1124,14 +1946,14 @@ ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
+     // work, so turn threading off in these cases. The performance hit is
+     // probably acceptable given this scenario means the build is being
+     // distributed onto remote machines.
+-    RULESET_TRACE("Turning off multi-threading, detected UBA!\n");
++    RULESET_TRACE_CORE("Turning off multi-threading, detected UBA!\n");
+     ThreadingEnabled = false;
+   }
+ #endif
+ 
+   // Create our state that will be shared across consumers and the
+   // preprocessor.
+-  RULESET_TRACE("Creating Clang rulesets state\n");
++  RULESET_TRACE_CORE("Creating Clang rulesets state\n");
+   std::shared_ptr<ClangRulesetsState> State =
+       std::make_shared<ClangRulesetsState>(ThreadingEnabled, CI);
+ 
+diff --git a/clang/lib/Lex/UnrealEnginePPTagger.cpp b/clang/lib/Lex/UnrealEnginePPTagger.cpp
+index 89a360aa26de..251e2d79368d 100644
+--- a/clang/lib/Lex/UnrealEnginePPTagger.cpp
++++ b/clang/lib/Lex/UnrealEnginePPTagger.cpp
+@@ -82,7 +82,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
+     } else if (Args == nullptr && MacroName.ends_with("_API")) {
+       /*static long count = 0;
+       llvm::errs() << count++ << ": " << MacroName << "\n";
+-      TokensToPush.push_back(
++        TokensToPush.push_back(
+             TokenInfo(tok::TokenKind::annot_unreal_exported, nullptr));*/
+     }
+     if (RequiresParameterHandling && Args != nullptr) {
+diff --git a/clang/lib/Parse/CMakeLists.txt b/clang/lib/Parse/CMakeLists.txt
+index 22e902f7e1bc..6fb563b8ca90 100644
+--- a/clang/lib/Parse/CMakeLists.txt
++++ b/clang/lib/Parse/CMakeLists.txt
+@@ -23,6 +23,7 @@ add_clang_library(clangParse
+   ParseTemplate.cpp
+   ParseTentative.cpp
+   Parser.cpp
++  Parser.Unreal.cpp
+   ParseOpenACC.cpp
+ 
+   LINK_LIBS
+diff --git a/clang/lib/Parse/ParseDecl.cpp b/clang/lib/Parse/ParseDecl.cpp
+index 25600754b5ca..7ce9a9cea1c7 100644
+--- a/clang/lib/Parse/ParseDecl.cpp
++++ b/clang/lib/Parse/ParseDecl.cpp
+@@ -5096,20 +5096,6 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
+       continue;
+     }
+ 
+-    // @unreal: BEGIN
+-    if (Tok.isOneOf(tok::annot_unreal_ufunction, tok::annot_unreal_uproperty,
+-                    tok::annot_unreal_specifier,
+-                    tok::annot_unreal_metadata_specifier, tok::annot_unreal_exported)) {
+-      if (Tok.getAnnotationValue() == nullptr) {
+-        HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+-      } else {
+-        HandlePragmaUnreal(Tok.getKind(),
+-                           *(UnrealSpecifier *)Tok.getAnnotationValue());
+-      }
+-      continue;
+-    }
+-    // @unreal: END
+-
+     // Parse _Static_assert declaration.
+     if (Tok.isOneOf(tok::kw__Static_assert, tok::kw_static_assert)) {
+       SourceLocation DeclEnd;
+@@ -6582,9 +6568,6 @@ void Parser::ParseTypeQualifierListOpt(
+ void Parser::ParseDeclarator(Declarator &D) {
+   /// This implements the 'declarator' production in the C grammar, then checks
+   /// for well-formedness and issues diagnostics.
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+   Actions.runWithSufficientStackSpace(D.getBeginLoc(), [&] {
+     ParseDeclaratorInternal(D, &Parser::ParseDirectDeclarator);
+   });
+@@ -6885,10 +6868,6 @@ static SourceLocation getMissingDeclaratorIdLoc(Declarator &D,
+ void Parser::ParseDirectDeclarator(Declarator &D) {
+   DeclaratorScopeObj DeclScopeObj(*this, D.getCXXScopeSpec());
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   if (getLangOpts().CPlusPlus && D.mayHaveIdentifier()) {
+     // This might be a C++17 structured binding.
+     if (Tok.is(tok::l_square) && !D.mayOmitIdentifier() &&
+diff --git a/clang/lib/Parse/ParseDeclCXX.cpp b/clang/lib/Parse/ParseDeclCXX.cpp
+index caa5ca8efe28..c69512128715 100644
+--- a/clang/lib/Parse/ParseDeclCXX.cpp
++++ b/clang/lib/Parse/ParseDeclCXX.cpp
+@@ -2864,10 +2864,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+     return nullptr;
+   }
+   
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   // Turn on colon protection early, while parsing declspec, although there is
+   // nothing to protect there. It prevents from false errors if error recovery
+   // incorrectly determines where the declspec ends, as in the example:
+@@ -2929,10 +2925,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+     }
+   }
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   // static_assert-declaration. A templated static_assert declaration is
+   // diagnosed in Parser::ParseDeclarationAfterTemplate.
+   if (!TemplateInfo.Kind &&
+@@ -2942,10 +2934,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+         DeclGroupRef(ParseStaticAssertDeclaration(DeclEnd)));
+   }
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   if (Tok.is(tok::kw_template)) {
+     assert(!TemplateInfo.TemplateParams &&
+            "Nested template improperly parsed?");
+@@ -2955,10 +2943,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+                                                     DeclEnd, AccessAttrs, AS);
+   }
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   // Handle:  member-declaration ::= '__extension__' member-declaration
+   if (Tok.is(tok::kw___extension__)) {
+     // __extension__ silences extension warnings in the subexpression.
+@@ -2968,35 +2952,16 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+                                           TemplateDiags);
+   }
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   ParsedAttributes DeclAttrs(AttrFactory);
+   // Optional C++11 attribute-specifier
+   MaybeParseCXX11Attributes(DeclAttrs);
+ 
+-  // @unreal: BEGIN
+-  // We can get UFUNCTION specifiers after a UE_DEPRECATED, which means the
+-  // tokens occur here instead. Consume all Unreal tokens and push them onto
+-  // the stack.
+-  ConsumePragmaUnreal();
+-  // @unreal: END
+-
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   // The next token may be an OpenMP pragma annotation token. That would
+   // normally be handled from ParseCXXClassMemberDeclarationWithPragmas, but in
+   // this case, it came from an *attribute* rather than a pragma. Handle it now.
+   if (Tok.is(tok::annot_attr_openmp))
+     return ParseOpenMPDeclarativeDirectiveWithExtDecl(AS, DeclAttrs);
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   if (Tok.is(tok::kw_using)) {
+     // Eat 'using'.
+     SourceLocation UsingLoc = ConsumeToken();
+@@ -3025,10 +2990,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+   // Hold late-parsed attributes so we can attach a Decl to them later.
+   LateParsedAttrList CommonLateParsedAttrs;
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   // decl-specifier-seq:
+   // Parse the common declaration-specifiers piece.
+   ParsingDeclSpec DS(*this, TemplateDiags);
+@@ -3069,10 +3030,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+                                   : nullptr,
+       TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->size() : 0);
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   if (TryConsumeToken(tok::semi)) {
+     if (DS.isFriendSpecified())
+       ProhibitAttributes(DeclAttrs);
+@@ -3130,10 +3087,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
+   ExprResult TrailingRequiresClause;
+   bool ExpectSemi = true;
+ 
+-  // @unreal: BEGIN
+-  CheckNoPragmaUnreal();
+-  // @unreal: END
+-
+   // C++20 [temp.spec] 13.9/6.
+   // This disables the access checking rules for member function template
+   // explicit instantiation and explicit specialization.
+@@ -3585,18 +3538,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
+     ConsumeExtraSemi(InsideStruct, TagType);
+     return nullptr;
+ 
+-  case tok::annot_unreal_ufunction:
+-  case tok::annot_unreal_uproperty:
+-  case tok::annot_unreal_specifier:
+-  case tok::annot_unreal_metadata_specifier:
+-  case tok::annot_unreal_exported:
+-    if (Tok.getAnnotationValue() == nullptr) {
+-      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+-    } else {
+-      HandlePragmaUnreal(Tok.getKind(),
+-                         *(UnrealSpecifier *)Tok.getAnnotationValue());
+-    }
+-    return nullptr;
+   case tok::annot_pragma_vis:
+     HandlePragmaVisibility();
+     return nullptr;
+diff --git a/clang/lib/Parse/ParsePragma.cpp b/clang/lib/Parse/ParsePragma.cpp
+index fd4187592533..cc6f18b5b319 100644
+--- a/clang/lib/Parse/ParsePragma.cpp
++++ b/clang/lib/Parse/ParsePragma.cpp
+@@ -724,47 +724,6 @@ void Parser::HandlePragmaVisibility() {
+   Actions.ActOnPragmaVisibility(VisType, VisLoc);
+ }
+ 
+-// @unreal: BEGIN
+-/// Consume any and all Unreal Engine tokens into the stack.
+-void Parser::ConsumePragmaUnreal() {
+-  while (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
+-                     tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
+-                     tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
+-                     tok::annot_unreal_metadata_specifier,
+-                     tok::annot_unreal_exported)) {
+-    if (Tok.getAnnotationValue() == nullptr) {
+-      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+-    } else {
+-      HandlePragmaUnreal(Tok.getKind(),
+-                         *(UnrealSpecifier *)Tok.getAnnotationValue());
+-    }
+-  }
+-}
+-
+-void Parser::CheckNoPragmaUnreal() {
+-  if (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
+-                  tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
+-                  tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
+-                  tok::annot_unreal_metadata_specifier,
+-                  tok::annot_unreal_exported)) {
+-    Diag(Tok.getLocation(), diag::err_expected_member_name_or_semi)
+-        << SourceRange();
+-    assert(!Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
+-                        tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
+-                        tok::annot_unreal_uproperty,
+-                        tok::annot_unreal_specifier,
+-                        tok::annot_unreal_metadata_specifier,
+-                        tok::annot_unreal_exported));
+-  }
+-}
+-
+-void Parser::HandlePragmaUnreal(tok::TokenKind Kind,
+-                                const UnrealSpecifier &UnrealData) {
+-  Actions.ActOnUnrealData(Tok.getLocation(), Kind, UnrealData);
+-  ConsumeAnnotationToken();
+-}
+-// @unreal: END
+-
+ void Parser::HandlePragmaPack() {
+   assert(Tok.is(tok::annot_pragma_pack));
+   Sema::PragmaPackInfo *Info =
+diff --git a/clang/lib/Parse/Parser.Unreal.cpp b/clang/lib/Parse/Parser.Unreal.cpp
+new file mode 100644
+index 000000000000..75ed4ad79f01
+--- /dev/null
++++ b/clang/lib/Parse/Parser.Unreal.cpp
+@@ -0,0 +1,68 @@
++#include "clang/Parse/Parser.h"
++
++using namespace clang;
++
++void Parser::PPLexWithUnrealAnnotationTokens() {
++  PP.Lex(Tok);
++  while (Tok.isOneOf(
++    tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
++    tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
++    tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
++    tok::annot_unreal_metadata_specifier,
++    tok::annot_unreal_exported)) [[unlikely]] {
++    if (Tok.getAnnotationValue() == nullptr) {
++      Actions.ActOnUnrealData(
++        Tok.getLocation(), 
++        Tok.getKind(), 
++        UnrealSpecifier());
++    } else {
++      Actions.ActOnUnrealData(
++        Tok.getLocation(), 
++        Tok.getKind(), 
++        *(UnrealSpecifier *)Tok.getAnnotationValue());
++    }
++    PP.Lex(Tok);
++  }
++}
++
++/*
++void Parser::ConsumePermittedUnrealTokens(PermittedUnrealTokens Tokens) {
++  auto TokAllowed = [this, Tokens]() {
++    if (Tokens == PermittedUnrealTokens::PUT_USpecifiers) {
++      return Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
++                         tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
++                         tok::annot_unreal_uproperty,
++                         tok::annot_unreal_specifier,
++                         tok::annot_unreal_metadata_specifier);
++    } else if (Tokens == PermittedUnrealTokens::PUT_ApiExport) {
++      return Tok.getKind() == tok::annot_unreal_exported;
++    }
++    return false;
++  };
++  while (TokAllowed()) {
++    if (Tok.getAnnotationValue() == nullptr) {
++      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
++    } else {
++      HandlePragmaUnreal(Tok.getKind(),
++                         *(UnrealSpecifier *)Tok.getAnnotationValue());
++    }
++  }
++  if (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
++                  tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
++                  tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
++                  tok::annot_unreal_metadata_specifier,
++                  tok::annot_unreal_exported)) {
++    Diag(Tok.getLocation(),
++         diag::err_unreal_annotation_found_in_unexpected_place)
++        << SourceRange();
++    assert(false /* Unreal Engine annotation found in unexpected place *);
++  }
++}
++*/
++
++/*
++void Parser::HandlePragmaUnreal(tok::TokenKind Kind,
++                                const UnrealSpecifier &UnrealData) {
++  ConsumeAnnotationToken();
++}
++*/
+\ No newline at end of file
+diff --git a/clang/lib/Parse/Parser.cpp b/clang/lib/Parse/Parser.cpp
+index 806711d116be..5ebe71e496a2 100644
+--- a/clang/lib/Parse/Parser.cpp
++++ b/clang/lib/Parse/Parser.cpp
+@@ -821,22 +821,6 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
+ 
+   Decl *SingleDecl = nullptr;
+   switch (Tok.getKind()) {
+-  // @unreal: BEGIN
+-  case tok::annot_unreal_uclass:
+-  case tok::annot_unreal_ufunction:
+-  case tok::annot_unreal_uproperty:
+-  case tok::annot_unreal_uinterface:
+-  case tok::annot_unreal_ustruct:
+-  case tok::annot_unreal_specifier:
+-  case tok::annot_unreal_metadata_specifier:
+-    if (Tok.getAnnotationValue() == nullptr) {
+-      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+-    } else {
+-      HandlePragmaUnreal(Tok.getKind(),
+-                         *(UnrealSpecifier *)Tok.getAnnotationValue());
+-    }
+-    return nullptr;
+-  // @unreal: END
+   case tok::annot_pragma_vis:
+     HandlePragmaVisibility();
+     return nullptr;
+diff --git a/clang/lib/Sema/CMakeLists.txt b/clang/lib/Sema/CMakeLists.txt
+index 2cee4f5ef6e9..52a772f1104b 100644
+--- a/clang/lib/Sema/CMakeLists.txt
++++ b/clang/lib/Sema/CMakeLists.txt
+@@ -88,6 +88,7 @@ add_clang_library(clangSema
+   SemaTemplateInstantiateDecl.cpp
+   SemaTemplateVariadic.cpp
+   SemaType.cpp
++  Sema.Unreal.cpp
+   SemaWasm.cpp
+   SemaX86.cpp
+   TypeLocBuilder.cpp
+diff --git a/clang/lib/Sema/Sema.ConstructorInit.Unreal.h b/clang/lib/Sema/Sema.ConstructorInit.Unreal.h
+new file mode 100644
+index 000000000000..242a833876af
+--- /dev/null
++++ b/clang/lib/Sema/Sema.ConstructorInit.Unreal.h
+@@ -0,0 +1 @@
++UnrealStack(), ExpectedIInterfaceToUInterfaceAttachments(),
+\ No newline at end of file
+diff --git a/clang/lib/Sema/Sema.Unreal.cpp b/clang/lib/Sema/Sema.Unreal.cpp
+new file mode 100644
+index 000000000000..933978bb9f11
+--- /dev/null
++++ b/clang/lib/Sema/Sema.Unreal.cpp
+@@ -0,0 +1,167 @@
++#include "UsedDeclVisitor.h"
++#include "clang/AST/ASTContext.h"
++#include "clang/AST/ASTDiagnostic.h"
++#include "clang/AST/Decl.h"
++#include "clang/AST/DeclCXX.h"
++#include "clang/AST/DeclFriend.h"
++#include "clang/AST/DeclObjC.h"
++#include "clang/AST/Expr.h"
++#include "clang/AST/ExprCXX.h"
++#include "clang/AST/PrettyDeclStackTrace.h"
++#include "clang/AST/StmtCXX.h"
++#include "clang/Basic/DarwinSDKInfo.h"
++#include "clang/Basic/DiagnosticOptions.h"
++#include "clang/Basic/PartialDiagnostic.h"
++#include "clang/Basic/SourceManager.h"
++#include "clang/Basic/Stack.h"
++#include "clang/Basic/TargetInfo.h"
++#include "clang/Lex/HeaderSearch.h"
++#include "clang/Lex/HeaderSearchOptions.h"
++#include "clang/Lex/Preprocessor.h"
++#include "clang/Sema/CXXFieldCollector.h"
++#include "clang/Sema/DelayedDiagnostic.h"
++#include "clang/Sema/EnterExpressionEvaluationContext.h"
++#include "clang/Sema/ExternalSemaSource.h"
++#include "clang/Sema/Initialization.h"
++#include "clang/Sema/MultiplexExternalSemaSource.h"
++#include "clang/Sema/ObjCMethodList.h"
++#include "clang/Sema/RISCVIntrinsicManager.h"
++#include "clang/Sema/Scope.h"
++#include "clang/Sema/ScopeInfo.h"
++#include "clang/Sema/SemaConsumer.h"
++#include "clang/Sema/SemaInternal.h"
++#include "clang/Sema/TemplateDeduction.h"
++#include "clang/Sema/TemplateInstCallback.h"
++#include "clang/Sema/TypoCorrection.h"
++#include "llvm/ADT/DenseMap.h"
++#include "llvm/ADT/STLExtras.h"
++#include "llvm/ADT/SmallPtrSet.h"
++#include "llvm/Support/TimeProfiler.h"
++#include <optional>
++
++using namespace clang;
++using namespace sema;
++
++void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
++                           const UnrealSpecifier &UnrealData) {
++  if (Kind == tok::TokenKind::annot_unreal_uinterface &&
++      UnrealStack.size() == 1 &&
++      UnrealStack[0].Kind == tok::TokenKind::annot_unreal_uclass) {
++    // This is an expected scenario because the UINTERFACE macro maps
++    // to 'UCLASS()' during actual compilation.
++    UnrealStack.clear();
++  }
++  if (UnrealStack.size() != 0 &&
++      (Kind == tok::TokenKind::annot_unreal_uclass ||
++       Kind == tok::TokenKind::annot_unreal_ufunction ||
++       Kind == tok::TokenKind::annot_unreal_ustruct ||
++       Kind == tok::TokenKind::annot_unreal_uinterface ||
++       Kind == tok::TokenKind::annot_unreal_uproperty)) {
++    Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
++    for (const auto &Entry : UnrealStack) {
++      Diag(Entry.Loc, diag::note_unreal_data_previous_location);
++    }
++    UnrealStack.clear();
++  }
++  if (UnrealStack.size() == 0 &&
++      (Kind == tok::TokenKind::annot_unreal_specifier ||
++       Kind == tok::TokenKind::annot_unreal_metadata_specifier)) {
++    assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
++                    "macro was pushed first!");
++  }
++  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData, TokenLoc));
++  assert((UnrealStack.size() < 1000) &&
++         "Unreal stack not being consumed by type declaration.");
++}
++
++#if defined(__clang__)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wswitch-enum"
++#elif defined(_MSC_VER)
++#pragma warning(push)
++#pragma warning(disable : 4062)
++#endif
++void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
++  if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
++    while (this->UnrealStack.size() > 0) {
++      const auto &Current = this->UnrealStack[0];
++      switch (Current.Kind) {
++      case tok::annot_unreal_exported: {
++        ND->UnrealExported = true;
++        break;
++      }
++      case tok::annot_unreal_uproperty: {
++        if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
++          ND->UnrealType = UnrealType::UT_UProperty;
++        }
++        break;
++      }
++      case tok::annot_unreal_ufunction: {
++        if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
++          ND->UnrealType = UnrealType::UT_UFunction;
++        }
++        break;
++      }
++      case tok::annot_unreal_uclass: {
++        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
++          ND->UnrealType = UnrealType::UT_UClass;
++        }
++        break;
++      }
++      case tok::annot_unreal_uinterface: {
++        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
++          ND->UnrealType = UnrealType::UT_UInterface;
++        }
++        break;
++      }
++      case tok::annot_unreal_ustruct: {
++        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
++          ND->UnrealType = UnrealType::UT_UStruct;
++        }
++        break;
++      }
++      case tok::annot_unreal_specifier: {
++        if (ND->UnrealType != UnrealType::UT_None) {
++          ND->UnrealSpecifiers.push_back(Current.SpecData);
++        }
++        break;
++      }
++      case tok::annot_unreal_metadata_specifier: {
++        if (ND->UnrealType != UnrealType::UT_None) {
++          ND->UnrealMetadata.push_back(Current.SpecData);
++        }
++        break;
++      }
++      }
++      this->UnrealStack.erase(this->UnrealStack.begin());
++    }
++  }
++}
++#if defined(__clang__)
++#pragma clang diagnostic pop
++#elif defined(_MSC_VER)
++#pragma warning(pop)
++#endif
++
++void Sema::ProcessUnrealInterfaceMappings(TagDecl* New) {
++  if (CXXRecordDecl *CRD = dyn_cast<CXXRecordDecl>(New)) {
++    std::string InterfaceName = New->getName().str();
++    if (New->UnrealType == UnrealType::UT_UInterface) {
++      if (InterfaceName.size() > 0 && InterfaceName[0] == 'U') {
++        InterfaceName[0] = 'I';
++        this->ExpectedIInterfaceToUInterfaceAttachments.insert(
++            std::pair<std::string, CXXRecordDecl *>(InterfaceName, CRD));
++      }
++    } else if (New->UnrealType == UnrealType::UT_None &&
++               this->ExpectedIInterfaceToUInterfaceAttachments.find(
++                   InterfaceName) !=
++                   this->ExpectedIInterfaceToUInterfaceAttachments.end()) {
++      CXXRecordDecl *UInterfaceDecl =
++          this->ExpectedIInterfaceToUInterfaceAttachments[InterfaceName];
++      UInterfaceDecl->IInterfaceAttachment = CRD;
++      CRD->UInterfaceAttachment = UInterfaceDecl;
++      CRD->UnrealType = UnrealType::UT_IInterface;
++      this->ExpectedIInterfaceToUInterfaceAttachments.erase(InterfaceName);
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/clang/lib/Sema/Sema.cpp b/clang/lib/Sema/Sema.cpp
+index 95e38acb637d..e6088c18b34c 100644
+--- a/clang/lib/Sema/Sema.cpp
++++ b/clang/lib/Sema/Sema.cpp
+@@ -254,7 +254,7 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
+       DataSegStack(nullptr), BSSSegStack(nullptr), ConstSegStack(nullptr),
+       CodeSegStack(nullptr), StrictGuardStackCheckStack(false),
+       // @unreal: BEGIN
+-      UnrealStack(), ExpectedIInterfaceToUInterfaceAttachments(),
++      #include "Sema.ConstructorInit.Unreal.h"
+       // @unreal: END
+       FpPragmaStack(FPOptionsOverride()), CurInitSeg(nullptr),
+       VisContext(nullptr), PragmaAttributeCurrentTargetDecl(nullptr),
+diff --git a/clang/lib/Sema/SemaAttr.cpp b/clang/lib/Sema/SemaAttr.cpp
+index 5dcce357bed9..b0c239678d0b 100644
+--- a/clang/lib/Sema/SemaAttr.cpp
++++ b/clang/lib/Sema/SemaAttr.cpp
+@@ -50,77 +50,6 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
+   }
+ }
+ 
+-// @unreal: BEGIN
+-#if defined(__clang__)
+-#pragma clang diagnostic push
+-#pragma clang diagnostic ignored "-Wswitch-enum"
+-#elif defined(_MSC_VER)
+-#pragma warning(push)
+-#pragma warning(disable : 4062)
+-#endif
+-void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
+-  if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
+-    while (this->UnrealStack.size() > 0) {
+-      const auto &Current = this->UnrealStack[0];
+-      switch (Current.Kind) {
+-      case tok::annot_unreal_exported: {
+-        ND->UnrealExported = true;
+-        break;
+-      }
+-      case tok::annot_unreal_uproperty: {
+-        if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
+-          ND->UnrealType = UnrealType::UT_UProperty;
+-        }
+-        break;
+-      }
+-      case tok::annot_unreal_ufunction: {
+-        if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
+-          ND->UnrealType = UnrealType::UT_UFunction;
+-        }
+-        break;
+-      }
+-      case tok::annot_unreal_uclass: {
+-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+-          ND->UnrealType = UnrealType::UT_UClass;
+-        }
+-        break;
+-      }
+-      case tok::annot_unreal_uinterface: {
+-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+-          ND->UnrealType = UnrealType::UT_UInterface;
+-        }
+-        break;
+-      }
+-      case tok::annot_unreal_ustruct: {
+-        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+-          ND->UnrealType = UnrealType::UT_UStruct;
+-        }
+-        break;
+-      }
+-      case tok::annot_unreal_specifier: {
+-        if (ND->UnrealType != UnrealType::UT_None) {
+-          ND->UnrealSpecifiers.push_back(Current.SpecData);
+-        }
+-        break;
+-      }
+-      case tok::annot_unreal_metadata_specifier: {
+-        if (ND->UnrealType != UnrealType::UT_None) {
+-          ND->UnrealMetadata.push_back(Current.SpecData);
+-        }
+-        break;
+-      }
+-      }
+-      this->UnrealStack.erase(this->UnrealStack.begin());
+-    }
+-  }
+-}
+-#if defined(__clang__)
+-#pragma clang diagnostic pop
+-#elif defined(_MSC_VER)
+-#pragma warning(pop)
+-#endif
+-// @unreal: END
+-
+ void Sema::AddAlignmentAttributesForRecord(RecordDecl *RD) {
+   AlignPackInfo InfoVal = AlignPackStack.CurrentValue;
+   AlignPackInfo::Mode M = InfoVal.getAlignMode();
+@@ -403,40 +332,6 @@ void Sema::ActOnPragmaClangSection(SourceLocation PragmaLoc,
+   CSec->PragmaLocation = PragmaLoc;
+ }
+ 
+-// @unreal: BEGIN
+-void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+-                           const UnrealSpecifier &UnrealData) {
+-  if (Kind == tok::TokenKind::annot_unreal_uinterface &&
+-      UnrealStack.size() == 1 &&
+-      UnrealStack[0].Kind == tok::TokenKind::annot_unreal_uclass) {
+-    // This is an expected scenario because the UINTERFACE macro maps
+-    // to 'UCLASS()' during actual compilation.
+-    UnrealStack.clear();
+-  }
+-  if (UnrealStack.size() != 0 &&
+-      (Kind == tok::TokenKind::annot_unreal_uclass ||
+-       Kind == tok::TokenKind::annot_unreal_ufunction ||
+-       Kind == tok::TokenKind::annot_unreal_ustruct ||
+-       Kind == tok::TokenKind::annot_unreal_uinterface ||
+-       Kind == tok::TokenKind::annot_unreal_uproperty)) {
+-    Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
+-    for (const auto &Entry : UnrealStack) {
+-      Diag(Entry.Loc, diag::note_unreal_data_previous_location);
+-    }
+-    UnrealStack.clear();
+-  }
+-  if (UnrealStack.size() == 0 &&
+-      (Kind == tok::TokenKind::annot_unreal_specifier ||
+-       Kind == tok::TokenKind::annot_unreal_metadata_specifier)) {
+-    assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
+-                    "macro was pushed first!");
+-  }
+-  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData, TokenLoc));
+-  assert((UnrealStack.size() < 1000) &&
+-         "Unreal stack not being consumed by type declaration.");
+-}
+-// @unreal: END
+-
+ void Sema::ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
+                            StringRef SlotLabel, Expr *alignment) {
+   bool IsXLPragma = getLangOpts().XLPragmaPack;
+diff --git a/clang/lib/Sema/SemaDecl.cpp b/clang/lib/Sema/SemaDecl.cpp
+index cb804d53213f..5b98e6dae790 100644
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -17868,26 +17868,7 @@ CreateNewDecl:
+ 
+   // @unreal: BEGIN
+   AddUnrealSpecifiersForDecl(New);
+-  if (CXXRecordDecl *CRD = dyn_cast<CXXRecordDecl>(New)) {
+-    std::string InterfaceName = New->getName().str();
+-    if (New->UnrealType == UnrealType::UT_UInterface) {
+-      if (InterfaceName.size() > 0 && InterfaceName[0] == 'U') {
+-        InterfaceName[0] = 'I';
+-        this->ExpectedIInterfaceToUInterfaceAttachments.insert(
+-            std::pair<std::string, CXXRecordDecl *>(InterfaceName, CRD));
+-      }
+-    } else if (New->UnrealType == UnrealType::UT_None &&
+-               this->ExpectedIInterfaceToUInterfaceAttachments.find(
+-                   InterfaceName) !=
+-                   this->ExpectedIInterfaceToUInterfaceAttachments.end()) {
+-      CXXRecordDecl *UInterfaceDecl =
+-          this->ExpectedIInterfaceToUInterfaceAttachments[InterfaceName];
+-      UInterfaceDecl->IInterfaceAttachment = CRD;
+-      CRD->UInterfaceAttachment = UInterfaceDecl;
+-      CRD->UnrealType = UnrealType::UT_IInterface;
+-      this->ExpectedIInterfaceToUInterfaceAttachments.erase(InterfaceName);
+-    }
+-  }
++  ProcessUnrealInterfaceMappings(New);
+   // @unreal: END
+ 
+   if (ModulePrivateLoc.isValid()) {
+-- 
+2.50.1.windows.1
+

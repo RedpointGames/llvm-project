@@ -1,0 +1,85 @@
+From 2048ffd80ac71965ec4e693ee336bdce572af52f Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Thu, 27 Jun 2024 11:16:51 +1000
+Subject: [PATCH] [unreal-ast] Report diagnostic notes on what Unreal metadata
+ tokens were discarded and where they were located
+
+---
+ clang/include/clang/Basic/DiagnosticGroups.td    | 4 ++++
+ clang/include/clang/Basic/DiagnosticSemaKinds.td | 4 +++-
+ clang/include/clang/Sema/Sema.h                  | 6 ++++--
+ clang/lib/Sema/SemaAttr.cpp                      | 5 ++++-
+ 4 files changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/clang/include/clang/Basic/DiagnosticGroups.td b/clang/include/clang/Basic/DiagnosticGroups.td
+index 6765721ae700..69cde2f54885 100644
+--- a/clang/include/clang/Basic/DiagnosticGroups.td
++++ b/clang/include/clang/Basic/DiagnosticGroups.td
+@@ -1491,3 +1491,7 @@ def ReadOnlyPlacementChecks : DiagGroup<"read-only-types">;
+ // Warnings and fixes to support the "safe buffers" programming model.
+ def UnsafeBufferUsageInContainer : DiagGroup<"unsafe-buffer-usage-in-container">;
+ def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInContainer]>;
++
++// @unreal: BEGIN
++def UnrealEngine : DiagGroup<"unreal-engine">;
++// @unreal: END
+\ No newline at end of file
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index 02a6d8dbe863..a0e0c525569c 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3464,7 +3464,9 @@ def warn_duplicate_codeseg_attribute : Warning<
+ // @unreal: BEGIN
+ def warn_unreal_data_discarded_on_new_specifier : Warning<
+   "previous Unreal Engine data discarded on new specifier">,
+-  InGroup<DiagGroup<"unreal-engine">>;
++  InGroup<UnrealEngine>;
++def note_unreal_data_previous_location : Note<
++  "previously discarded metadata was located here">;
+ // @unreal: END
+ 
+ def err_anonymous_property: Error<
+diff --git a/clang/include/clang/Sema/Sema.h b/clang/include/clang/Sema/Sema.h
+index b325fd861d47..c89dd9e081ce 100644
+--- a/clang/include/clang/Sema/Sema.h
++++ b/clang/include/clang/Sema/Sema.h
+@@ -708,9 +708,11 @@ public:
+   struct UnrealSpecifierSema {
+     tok::TokenKind Kind;
+     clang::UnrealSpecifier SpecData;
++    clang::SourceLocation Loc;
+     UnrealSpecifierSema(tok::TokenKind InKind,
+-                        const clang::UnrealSpecifier &InSpecData)
+-        : Kind(InKind), SpecData(InSpecData){};
++                        const clang::UnrealSpecifier &InSpecData,
++                        const clang::SourceLocation &InLoc)
++        : Kind(InKind), SpecData(InSpecData), Loc(InLoc){};
+   };
+   std::vector<UnrealSpecifierSema> UnrealStack;
+   std::map<std::string, CXXRecordDecl *>
+diff --git a/clang/lib/Sema/SemaAttr.cpp b/clang/lib/Sema/SemaAttr.cpp
+index c4816eeadbdf..f7cac07be122 100644
+--- a/clang/lib/Sema/SemaAttr.cpp
++++ b/clang/lib/Sema/SemaAttr.cpp
+@@ -375,6 +375,9 @@ void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+        Kind == tok::TokenKind::annot_unreal_uinterface ||
+        Kind == tok::TokenKind::annot_unreal_uproperty)) {
+     Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
++    for (const auto &Entry : UnrealStack) {
++      Diag(Entry.Loc, diag::note_unreal_data_previous_location);
++    }
+     UnrealStack.clear();
+   }
+   if (UnrealStack.size() == 0 &&
+@@ -383,7 +386,7 @@ void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+     assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
+                     "macro was pushed first!");
+   }
+-  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData));
++  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData, TokenLoc));
+   assert((UnrealStack.size() < 1000) &&
+          "Unreal stack not being consumed by type declaration.");
+ }
+-- 
+2.50.1.windows.1
+

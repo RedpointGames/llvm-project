@@ -1,0 +1,114 @@
+From adf8ecdbe7ee8f50580fea65f685218e0ae27107 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 17:10:36 +1100
+Subject: [PATCH] Predefine `_CRT_USE_BUILTIN_OFFSETOF` in MS-compatible modes
+ (#127568)
+
+---
+ clang/docs/ReleaseNotes.rst           |  4 ++++
+ clang/lib/Basic/Targets/OSTargets.cpp |  2 ++
+ clang/test/Sema/offsetof-ucrt.c       | 28 +++++++++++++++++++++++++++
+ clang/test/SemaCXX/offsetof-ucrt.cpp  | 28 +++++++++++++++++++++++++++
+ 4 files changed, 62 insertions(+)
+ create mode 100644 clang/test/Sema/offsetof-ucrt.c
+ create mode 100644 clang/test/SemaCXX/offsetof-ucrt.cpp
+
+diff --git a/clang/docs/ReleaseNotes.rst b/clang/docs/ReleaseNotes.rst
+index 1e9845b9b9c5..ab97dcc3e437 100644
+--- a/clang/docs/ReleaseNotes.rst
++++ b/clang/docs/ReleaseNotes.rst
+@@ -1261,6 +1261,10 @@ Windows Support
+   to ensure compatibility with msvc. Previously strict aliasing was only disabled if the
+   driver mode was cl.
+ 
++- Clang now defines ``_CRT_USE_BUILTIN_OFFSETOF`` macro in MSVC-compatible mode,
++  which makes ``offsetof`` provided by Microsoft's ``<stddef.h>`` to be defined
++  correctly. (#GH59689)
++
+ LoongArch Support
+ ^^^^^^^^^^^^^^^^^
+ 
+diff --git a/clang/lib/Basic/Targets/OSTargets.cpp b/clang/lib/Basic/Targets/OSTargets.cpp
+index 899aefa6173a..f77015545cde 100644
+--- a/clang/lib/Basic/Targets/OSTargets.cpp
++++ b/clang/lib/Basic/Targets/OSTargets.cpp
+@@ -209,6 +209,8 @@ static void addVisualCDefines(const LangOptions &Opts, MacroBuilder &Builder) {
+     Builder.defineMacro("_MSC_FULL_VER", Twine(Opts.MSCompatibilityVersion));
+     // FIXME We cannot encode the revision information into 32-bits
+     Builder.defineMacro("_MSC_BUILD", Twine(1));
++    // Exposed by MSVC, used in their stddef.h.
++    Builder.defineMacro("_CRT_USE_BUILTIN_OFFSETOF", Twine(1));
+ 
+     if (Opts.CPlusPlus11 && Opts.isCompatibleWithMSVC(LangOptions::MSVC2015))
+       Builder.defineMacro("_HAS_CHAR16_T_LANGUAGE_SUPPORT", Twine(1));
+diff --git a/clang/test/Sema/offsetof-ucrt.c b/clang/test/Sema/offsetof-ucrt.c
+new file mode 100644
+index 000000000000..05c3d87ce66c
+--- /dev/null
++++ b/clang/test/Sema/offsetof-ucrt.c
+@@ -0,0 +1,28 @@
++// RUN: %clang_cc1 %s -triple i686-pc-win32 -fsyntax-only -verify -fms-compatibility
++// RUN: %clang_cc1 %s -triple i686-pc-win32 -fsyntax-only -verify
++// expected-no-diagnostics
++
++typedef __typeof__(sizeof(0)) size_t;
++
++#ifdef _MSC_VER
++#ifndef _CRT_USE_BUILTIN_OFFSETOF
++#error _CRT_USE_BUILTIN_OFFSETOF should be predefined in MSVC-compatible modes.
++#endif
++#else
++#ifdef _CRT_USE_BUILTIN_OFFSETOF
++#error _CRT_USE_BUILTIN_OFFSETOF should not be predefined in non-MSVC-compatible modes.
++#endif
++#endif
++
++#if defined _MSC_VER && !defined _CRT_USE_BUILTIN_OFFSETOF
++#ifdef __cplusplus
++#define offsetof(s,m) ((::size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
++#else
++#define offsetof(s,m) ((size_t)&(((s*)0)->m))
++#endif
++#else
++#define offsetof(s,m) __builtin_offsetof(s,m)
++#endif
++
++struct S { int a; };
++_Static_assert(offsetof(struct S, a) == 0, "");
+diff --git a/clang/test/SemaCXX/offsetof-ucrt.cpp b/clang/test/SemaCXX/offsetof-ucrt.cpp
+new file mode 100644
+index 000000000000..95437554c466
+--- /dev/null
++++ b/clang/test/SemaCXX/offsetof-ucrt.cpp
+@@ -0,0 +1,28 @@
++// RUN: %clang_cc1 %s -triple i686-pc-win32 -fsyntax-only -verify -fms-compatibility
++// RUN: %clang_cc1 %s -triple i686-pc-win32 -fsyntax-only -verify
++// expected-no-diagnostics
++
++typedef __typeof__(sizeof(0)) size_t;
++
++#ifdef _MSC_VER
++#ifndef _CRT_USE_BUILTIN_OFFSETOF
++#error _CRT_USE_BUILTIN_OFFSETOF should be predefined in MSVC-compatible modes.
++#endif
++#else
++#ifdef _CRT_USE_BUILTIN_OFFSETOF
++#error _CRT_USE_BUILTIN_OFFSETOF should not be predefined in non-MSVC-compatible modes.
++#endif
++#endif
++
++#if defined _MSC_VER && !defined _CRT_USE_BUILTIN_OFFSETOF
++#ifdef __cplusplus
++#define offsetof(s,m) ((::size_t)&reinterpret_cast<char const volatile&>((((s*)0)->m)))
++#else
++#define offsetof(s,m) ((size_t)&(((s*)0)->m))
++#endif
++#else
++#define offsetof(s,m) __builtin_offsetof(s,m)
++#endif
++
++struct S { int a; };
++_Static_assert(offsetof(S, a) == 0, "");
+-- 
+2.50.1.windows.1
+

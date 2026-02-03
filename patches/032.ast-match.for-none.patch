@@ -1,0 +1,212 @@
+From 18a7da7aca917027802a02534296ece63916fa22 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 16:19:25 +1100
+Subject: [PATCH] [ast-match] Add 'forNone' and 'forNoDescendant' AST matchers
+
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 17 ++++-
+ .../ASTMatchers/ASTMatchersInternal.Unreal.h  | 73 +++++++++++++++++++
+ .../clang/ASTMatchers/ASTMatchersInternal.h   | 28 +++++++
+ .../ASTMatchers/ASTMatchersInternal.Unreal.h  |  6 ++
+ clang/lib/ASTMatchers/ASTMatchersInternal.cpp |  9 +++
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  2 +
+ 6 files changed, 134 insertions(+), 1 deletion(-)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index ce06bc6f99f7..da3aa1ba6259 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -25,4 +25,19 @@ AST_MATCHER_P(TemplateArgument, refersToPack,
+     }
+   }
+   return false;
+-}
+\ No newline at end of file
++}
++
++/// Matches AST nodes that have no child AST nodes that match the
++/// provided matcher.
++///
++/// Usable as: Any Matcher
++extern const internal::ArgumentAdaptingMatcherFunc<internal::ForNoneMatcher>
++    forNone;
++
++/// Matches AST nodes that have no descendant AST nodes that match the
++/// provided matcher.
++///
++/// Usable as: Any Matcher
++extern const internal::ArgumentAdaptingMatcherFunc<
++    internal::ForNoDescendantMatcher>
++    forNoDescendant;
+\ No newline at end of file
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h
+index e69de29bb2d1..327461ecd7d3 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchersInternal.Unreal.h
+@@ -0,0 +1,73 @@
++/// Matches nodes of type T that have no child nodes of type ChildT for
++/// which a specified child matcher matches. ChildT must be an AST base
++/// type.
++/// ForNoneMatcher will only match if none of the child nodes match
++/// the inner matcher.
++template <typename T, typename ChildT>
++class ForNoneMatcher : public MatcherInterface<T> {
++  static_assert(IsBaseType<ChildT>::value,
++                "for none only accepts base type matcher");
++
++  DynTypedMatcher InnerMatcher;
++
++public:
++  explicit ForNoneMatcher(const Matcher<ChildT> &InnerMatcher)
++      : InnerMatcher(InnerMatcher) {}
++
++  bool matches(const T &Node, ASTMatchFinder *Finder,
++               BoundNodesTreeBuilder *Builder) const override {
++    BoundNodesTreeBuilder MatchingBuilder(*Builder);
++    bool AnyMatched = Finder->matchesChildOf(
++        Node, this->InnerMatcher, &MatchingBuilder, ASTMatchFinder::BK_All);
++    if (!AnyMatched) {
++      // We didn't iterate over any nodes that matched, so
++      // Builder would be empty. This is a success case.
++      return true;
++    }
++    // Otherwise remove from Builder any entries that we
++    // also have in MatchingBuilder because we want to leave
++    // only the remaining entries.
++    return Builder->removeBindings(
++        [&MatchingBuilder](const internal::BoundNodesMap &Nodes) {
++          return MatchingBuilder.contains(Nodes);
++        });
++  }
++};
++
++/// Matches nodes of type T that have no descendant node of
++/// type DescendantT for which the given inner matcher matches.
++///
++/// DescendantT must be an AST base type.
++/// ForNoDescendantMatcher only matches if none of the descendant nodes
++/// match.
++template <typename T, typename DescendantT>
++class ForNoDescendantMatcher : public MatcherInterface<T> {
++  static_assert(IsBaseType<DescendantT>::value,
++                "for no descendant only accepts base type matcher");
++
++  DynTypedMatcher DescendantMatcher;
++
++public:
++  explicit ForNoDescendantMatcher(const Matcher<DescendantT> &DescendantMatcher)
++      : DescendantMatcher(DescendantMatcher) {}
++
++  bool matches(const T &Node, ASTMatchFinder *Finder,
++               BoundNodesTreeBuilder *Builder) const override {
++    BoundNodesTreeBuilder MatchingBuilder(*Builder);
++    bool AnyMatched = 
++        Finder->matchesDescendantOf(Node, this->DescendantMatcher,
++                                    &MatchingBuilder, ASTMatchFinder::BK_All);
++    if (!AnyMatched) {
++      // We didn't iterate over any nodes that matched, so
++      // Builder would be empty. This is a success case.
++      return true;
++    }
++    // Otherwise remove from Builder any entries that we
++    // also have in MatchingBuilder because we want to leave
++    // only the remaining entries.
++    return Builder->removeBindings(
++        [&MatchingBuilder](const internal::BoundNodesMap &Nodes) {
++          return MatchingBuilder.contains(Nodes);
++        });
++  }
++};
+\ No newline at end of file
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchersInternal.h b/clang/include/clang/ASTMatchers/ASTMatchersInternal.h
+index e864959cac89..730231430d26 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchersInternal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchersInternal.h
+@@ -268,6 +268,28 @@ public:
+     return true;
+   }
+ 
++  // @unreal: BEGIN
++  /// Returns \c true if the \c BoundNodesMap entirely contains the values
++  /// in \c Subset.
++  bool contains(const BoundNodesMap &Subset) {
++    const auto &N = this->NodeMap.end();
++    if (Subset.NodeMap.size() == 1) {
++      // Avoid iteration if the subset only has a single value.
++      const auto &F = Subset.NodeMap.begin();
++      const auto &T = this->NodeMap.find(F->first);
++      return T != N && T->second == F->second;
++    } else {
++      for (const auto &F : Subset.NodeMap) {
++        const auto &T = this->NodeMap.find(F.first);
++        if (T == N || T->second != F.second) {
++          return false;
++        }
++      }
++    }
++    return true;
++  }
++  // @unreal: END
++
+ private:
+   IDToNodeMap NodeMap;
+ };
+@@ -306,6 +328,12 @@ public:
+   /// The ownership of 'ResultVisitor' remains at the caller.
+   void visitMatches(Visitor* ResultVisitor);
+ 
++  // @unreal: BEGIN
++  /// Returns true if any of the entries in this tree contain the
++  /// other bound nodes map.
++  bool contains(const internal::BoundNodesMap &Subset);
++  // @unreal: END
++
+   template <typename ExcludePredicate>
+   bool removeBindings(const ExcludePredicate &Predicate) {
+     llvm::erase_if(Bindings, Predicate);
+diff --git a/clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h b/clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h
+index e69de29bb2d1..a18bb69ffd71 100644
+--- a/clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h
++++ b/clang/lib/ASTMatchers/ASTMatchersInternal.Unreal.h
+@@ -0,0 +1,6 @@
++// @unreal: BEGIN
++const internal::ArgumentAdaptingMatcherFunc<internal::ForNoneMatcher> forNone =
++    {};
++const internal::ArgumentAdaptingMatcherFunc<internal::ForNoDescendantMatcher>
++    forNoDescendant = {};
++// @unreal: END
+\ No newline at end of file
+diff --git a/clang/lib/ASTMatchers/ASTMatchersInternal.cpp b/clang/lib/ASTMatchers/ASTMatchersInternal.cpp
+index 57cd8693d93a..14bd881acf17 100644
+--- a/clang/lib/ASTMatchers/ASTMatchersInternal.cpp
++++ b/clang/lib/ASTMatchers/ASTMatchersInternal.cpp
+@@ -106,6 +106,15 @@ void BoundNodesTreeBuilder::visitMatches(Visitor *ResultVisitor) {
+   }
+ }
+ 
++bool BoundNodesTreeBuilder::contains(const internal::BoundNodesMap &Subset) {
++  for (BoundNodesMap &Binding : Bindings) {
++    if (Binding.contains(Subset)) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ namespace {
+ 
+ using VariadicOperatorFunction = bool (*)(
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index 0fc4621746cd..272ed1ed0a3a 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -1,3 +1,5 @@
+ // @unreal: BEGIN
+ REGISTER_MATCHER(refersToPack);
++REGISTER_MATCHER(forNone);
++REGISTER_MATCHER(forNoDescendant);
+ // @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+

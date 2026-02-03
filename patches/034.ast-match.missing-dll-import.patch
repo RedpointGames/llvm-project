@@ -1,0 +1,84 @@
+From 7284242243f1c1d79d0f2d810dbf0c27fd250a9f Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 16:20:55 +1100
+Subject: [PATCH] [ast-match] Add isMissingDllImportOrExport AST matcher
+
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 51 +++++++++++++++++++
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  1 +
+ 2 files changed, 52 insertions(+)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index 5dd3eb4a87e1..a94536e5eaca 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -58,3 +58,54 @@ extern const internal::ArgumentAdaptingMatcherFunc<
+ AST_MATCHER(QualType, isPODType) {
+   return Node.isPODType(Finder->getASTContext());
+ }
++
++/// Matches \c Decls that could have a __dllimport or __dllexport attribute, but
++/// don't.
++AST_POLYMORPHIC_MATCHER(isMissingDllImportOrExport,
++                        AST_POLYMORPHIC_SUPPORTED_TYPES(CXXRecordDecl,
++                                                        FunctionDecl,
++                                                        VarDecl)) {
++  bool PermittedToExport = false;
++  if (const CXXRecordDecl *CXXD = dyn_cast<CXXRecordDecl>(&Node)) {
++    if (isa<ClassTemplateDecl>(CXXD->getParent()) ||
++        isa<ClassTemplateSpecializationDecl>(CXXD->getParent()) ||
++        isa<ClassTemplateSpecializationDecl>(CXXD)) {
++      // This type declaration is part of a template, and therefore can not be
++      // exported.
++      return false;
++    }
++    if (const VarDecl *CXXDVD =
++            dyn_cast_or_null<VarDecl>(CXXD->getNextDeclInContext())) {
++      if (CXXDVD != nullptr &&
++          CXXDVD->getType()->getAsCXXRecordDecl() == CXXD) {
++        if (CXXDVD->hasAttr<DLLImportAttr>() ||
++            CXXDVD->hasAttr<DLLExportAttr>()) {
++          // This type declaration is immediately followed by a variable that
++          // uses it, and that variable is exported. This usually means an
++          // export of the kind '__declspec(dllexport) class {} A;' where the
++          // CXXRecordDecl isn't exported, but 'A' is.
++          return false;
++        }
++      }
++    }
++    PermittedToExport = CXXD->hasDefinition() &&
++                        CXXD->getDefinition() == CXXD && !CXXD->isLambda() &&
++                        CXXD->getDescribedClassTemplate() == nullptr &&
++                        (isa<TranslationUnitDecl>(CXXD->getDeclContext()) ||
++                         isa<NamespaceDecl>(CXXD->getDeclContext()));
++  } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(&Node)) {
++    PermittedToExport = FD->getStorageClass() != SC_Static &&
++                        !FD->isInlineSpecified() && !FD->isConstexpr() &&
++                        FD->isGlobal();
++  } else if (const VarDecl *VD = dyn_cast<VarDecl>(&Node)) {
++    PermittedToExport =
++        VD->hasGlobalStorage() && VD->getStorageClass() != SC_Static;
++  }
++  if (const Decl *D = dyn_cast<Decl>(&Node)) {
++    bool HasImportOrExportAttr =
++        D->hasAttr<DLLImportAttr>() || D->hasAttr<DLLExportAttr>();
++    return PermittedToExport && !HasImportOrExportAttr;
++  } else {
++    return false;
++  }
++}
+\ No newline at end of file
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index 9641dd17ad02..b4d3df814acc 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -3,4 +3,5 @@ REGISTER_MATCHER(refersToPack);
+ REGISTER_MATCHER(forNone);
+ REGISTER_MATCHER(forNoDescendant);
+ REGISTER_MATCHER(isPODType);
++REGISTER_MATCHER(isMissingDllImportOrExport);
+ // @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+

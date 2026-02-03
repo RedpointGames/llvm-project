@@ -1,0 +1,300 @@
+From 3cdec394bbc79db303af26654213eda5be400f8b Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Wed, 10 Jul 2024 15:43:04 +1000
+Subject: [PATCH] [ast-match] Track use of MODULE_API macros and add
+ isUnrealExported() AST matcher
+
+---
+ clang/include/clang/AST/Decl.h                |  8 ++-
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 13 +++-
+ clang/include/clang/Basic/TokenKinds.def      |  1 +
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  1 +
+ clang/lib/Lex/UnrealEnginePPTagger.cpp        | 22 ++++--
+ clang/lib/Parse/ParseDecl.cpp                 |  2 +-
+ clang/lib/Parse/ParseDeclCXX.cpp              |  1 +
+ clang/lib/Parse/ParsePragma.cpp               |  9 ++-
+ clang/lib/Sema/SemaAttr.cpp                   | 70 ++++++++++++++-----
+ 9 files changed, 95 insertions(+), 32 deletions(-)
+
+diff --git a/clang/include/clang/AST/Decl.h b/clang/include/clang/AST/Decl.h
+index ccbf348b00a6..0ad16d12accf 100644
+--- a/clang/include/clang/AST/Decl.h
++++ b/clang/include/clang/AST/Decl.h
+@@ -264,7 +264,7 @@ protected:
+   NamedDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName N)
+       : Decl(DK, DC, L), Name(N)
+       // @unreal: BEGIN
+-      , UnrealType(UnrealType::UT_None), UnrealSpecifiers(), UnrealMetadata()
++        , UnrealType(UnrealType::UT_None), UnrealExported(false), UnrealSpecifiers(), UnrealMetadata()
+       // @unreal: END
+       {}
+ 
+@@ -273,6 +273,12 @@ public:
+   /// The Unreal type flag for this decl.
+   unsigned UnrealType;
+ 
++  /// If true, this type is exported from modules as far as Unreal
++  /// is concerned. This is set when _API is present on the type,
++  /// and can be used to track that _API is present regardless of
++  /// what the macro expands to.
++  bool UnrealExported;
++
+   /// The Unreal specifiers that are associated with this decl.
+   /// todo: Make this a map for faster lookups.
+   std::vector<UnrealSpecifier> UnrealSpecifiers;
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index 253322f7e20f..51ee15dc17a4 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -497,4 +497,15 @@ AST_MATCHER(QualType, isExpensiveToCopy) {
+   std::optional<bool> IsExpensive =
+       isExpensiveToCopyNode(Node, Finder->getASTContext());
+   return IsExpensive && *IsExpensive;
+-}
+\ No newline at end of file
++}
++/// Matches if a named decl has an ..._API macro applied to it.
++///
++/// Given
++/// \code
++///   class MYMODULE_API FSomeDecl {};
++/// \endcode
++/// \c namedDecl(isUnrealExported())
++///   matches the class.
++AST_MATCHER(NamedDecl, isUnrealExported) {
++  return Node.UnrealExported;
++}
+diff --git a/clang/include/clang/Basic/TokenKinds.def b/clang/include/clang/Basic/TokenKinds.def
+index 522c8f1a9d20..d859a4e5a729 100644
+--- a/clang/include/clang/Basic/TokenKinds.def
++++ b/clang/include/clang/Basic/TokenKinds.def
+@@ -995,6 +995,7 @@ PRAGMA_ANNOTATION(unreal_uinterface)
+ PRAGMA_ANNOTATION(unreal_ustruct)
+ PRAGMA_ANNOTATION(unreal_specifier)
+ PRAGMA_ANNOTATION(unreal_metadata_specifier)
++PRAGMA_ANNOTATION(unreal_exported)
+ // @unreal: END
+ 
+ #undef PRAGMA_ANNOTATION
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index 2f3e32932489..39cca84e752a 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -18,4 +18,5 @@ REGISTER_MATCHER(hasUMetadataValue);
+ REGISTER_MATCHER(withIInterface);
+ REGISTER_MATCHER(withUInterface);
+ REGISTER_MATCHER(isExpensiveToCopy);
++REGISTER_MATCHER(isUnrealExported);
+ // @unreal: END
+\ No newline at end of file
+diff --git a/clang/lib/Lex/UnrealEnginePPTagger.cpp b/clang/lib/Lex/UnrealEnginePPTagger.cpp
+index 67ac72d9debc..89a360aa26de 100644
+--- a/clang/lib/Lex/UnrealEnginePPTagger.cpp
++++ b/clang/lib/Lex/UnrealEnginePPTagger.cpp
+@@ -52,32 +52,40 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
+                                         const MacroDefinition &MD,
+                                         SourceRange Range,
+                                         const MacroArgs *Args) {
++  if (this->PP.isParsingIfOrElifDirective()) {
++    return;
++  }
+   if (MacroNameTok.isAnyIdentifier()) {
+     llvm::StringRef MacroName = MacroNameTok.getIdentifierInfo()->getName();
+-    bool IsRecognised = false;
++    bool RequiresParameterHandling = false;
+     std::vector<TokenInfo> TokensToPush;
+     if (MacroName == "UCLASS") {
+       TokensToPush.push_back(
+           TokenInfo(tok::TokenKind::annot_unreal_uclass, nullptr));
+-      IsRecognised = true;
++      RequiresParameterHandling = true;
+     } else if (MacroName == "USTRUCT") {
+       TokensToPush.push_back(
+           TokenInfo(tok::TokenKind::annot_unreal_ustruct, nullptr));
+-      IsRecognised = true;
++      RequiresParameterHandling = true;
+     } else if (MacroName == "UINTERFACE") {
+       TokensToPush.push_back(
+           TokenInfo(tok::TokenKind::annot_unreal_uinterface, nullptr));
+-      IsRecognised = true;
++      RequiresParameterHandling = true;
+     } else if (MacroName == "UPROPERTY") {
+       TokensToPush.push_back(
+           TokenInfo(tok::TokenKind::annot_unreal_uproperty, nullptr));
+-      IsRecognised = true;
++      RequiresParameterHandling = true;
+     } else if (MacroName == "UFUNCTION") {
+       TokensToPush.push_back(
+           TokenInfo(tok::TokenKind::annot_unreal_ufunction, nullptr));
+-      IsRecognised = true;
++      RequiresParameterHandling = true;
++    } else if (Args == nullptr && MacroName.ends_with("_API")) {
++      /*static long count = 0;
++      llvm::errs() << count++ << ": " << MacroName << "\n";
++      TokensToPush.push_back(
++            TokenInfo(tok::TokenKind::annot_unreal_exported, nullptr));*/
+     }
+-    if (IsRecognised && Args != nullptr) {
++    if (RequiresParameterHandling && Args != nullptr) {
+       assert(Args->getNumMacroArguments() == 1 &&
+              "Expected U* specifier to only have one (varargs) argument");
+       const Token *ArgTokens = Args->getUnexpArgument(0);
+diff --git a/clang/lib/Parse/ParseDecl.cpp b/clang/lib/Parse/ParseDecl.cpp
+index f6c172fbfa1d..e38ed8a2b4ec 100644
+--- a/clang/lib/Parse/ParseDecl.cpp
++++ b/clang/lib/Parse/ParseDecl.cpp
+@@ -4720,7 +4720,7 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
+     // @unreal: BEGIN
+     if (Tok.isOneOf(tok::annot_unreal_ufunction, tok::annot_unreal_uproperty,
+                     tok::annot_unreal_specifier,
+-                    tok::annot_unreal_metadata_specifier)) {
++                    tok::annot_unreal_metadata_specifier, tok::annot_unreal_exported)) {
+       if (Tok.getAnnotationValue() == nullptr) {
+         HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+       } else {
+diff --git a/clang/lib/Parse/ParseDeclCXX.cpp b/clang/lib/Parse/ParseDeclCXX.cpp
+index 789244682c4c..d933d4b50c73 100644
+--- a/clang/lib/Parse/ParseDeclCXX.cpp
++++ b/clang/lib/Parse/ParseDeclCXX.cpp
+@@ -3411,6 +3411,7 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
+   case tok::annot_unreal_uproperty:
+   case tok::annot_unreal_specifier:
+   case tok::annot_unreal_metadata_specifier:
++  case tok::annot_unreal_exported:
+     if (Tok.getAnnotationValue() == nullptr) {
+       HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+     } else {
+diff --git a/clang/lib/Parse/ParsePragma.cpp b/clang/lib/Parse/ParsePragma.cpp
+index 167471f04b3a..4b4b369ee0b2 100644
+--- a/clang/lib/Parse/ParsePragma.cpp
++++ b/clang/lib/Parse/ParsePragma.cpp
+@@ -727,7 +727,8 @@ void Parser::ConsumePragmaUnreal() {
+   while (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
+                      tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
+                      tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
+-                     tok::annot_unreal_metadata_specifier)) {
++                     tok::annot_unreal_metadata_specifier,
++                     tok::annot_unreal_exported)) {
+     if (Tok.getAnnotationValue() == nullptr) {
+       HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
+     } else {
+@@ -741,14 +742,16 @@ void Parser::CheckNoPragmaUnreal() {
+   if (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
+                   tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
+                   tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
+-                  tok::annot_unreal_metadata_specifier)) {
++                  tok::annot_unreal_metadata_specifier,
++                  tok::annot_unreal_exported)) {
+     Diag(Tok.getLocation(), diag::err_expected_member_name_or_semi)
+         << SourceRange();
+     assert(!Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
+                         tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
+                         tok::annot_unreal_uproperty,
+                         tok::annot_unreal_specifier,
+-                        tok::annot_unreal_metadata_specifier));
++                        tok::annot_unreal_metadata_specifier,
++                        tok::annot_unreal_exported));
+   }
+ }
+ 
+diff --git a/clang/lib/Sema/SemaAttr.cpp b/clang/lib/Sema/SemaAttr.cpp
+index f7cac07be122..f5f55b8f7dfc 100644
+--- a/clang/lib/Sema/SemaAttr.cpp
++++ b/clang/lib/Sema/SemaAttr.cpp
+@@ -51,42 +51,74 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
+ }
+ 
+ // @unreal: BEGIN
++#if defined(__clang__)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wswitch-enum"
++#elif defined(_MSC_VER)
++#pragma warning(push)
++#pragma warning(disable : 4062)
++#endif
+ void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
+-  if (this->UnrealStack.size() > 0) {
+-    if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
+-      if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
+-        if (this->UnrealStack[0].Kind == tok::annot_unreal_uproperty) {
++  if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
++    while (this->UnrealStack.size() > 0) {
++      const auto &Current = this->UnrealStack[0];
++      switch (Current.Kind) {
++      case tok::annot_unreal_exported: {
++        ND->UnrealExported = true;
++        break;
++      }
++      case tok::annot_unreal_uproperty: {
++        if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
+           ND->UnrealType = UnrealType::UT_UProperty;
+         }
++        break;
+       }
+-      if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
+-        if (this->UnrealStack[0].Kind == tok::annot_unreal_ufunction) {
++      case tok::annot_unreal_ufunction: {
++        if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
+           ND->UnrealType = UnrealType::UT_UFunction;
+         }
++        break;
+       }
+-      if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+-        if (this->UnrealStack[0].Kind == tok::annot_unreal_uclass) {
++      case tok::annot_unreal_uclass: {
++        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+           ND->UnrealType = UnrealType::UT_UClass;
+-        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_uinterface) {
++        }
++        break;
++      }
++      case tok::annot_unreal_uinterface: {
++        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+           ND->UnrealType = UnrealType::UT_UInterface;
+-        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_ustruct) {
++        }
++        break;
++      }
++      case tok::annot_unreal_ustruct: {
++        if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
+           ND->UnrealType = UnrealType::UT_UStruct;
+         }
++        break;
++      }
++      case tok::annot_unreal_specifier: {
++        if (ND->UnrealType != UnrealType::UT_None) {
++          ND->UnrealSpecifiers.push_back(Current.SpecData);
++        }
++        break;
+       }
+-      if (ND->UnrealType != UnrealType::UT_None) {
+-        for (int i = 1; i < this->UnrealStack.size(); i++) {
+-          const auto &Val = this->UnrealStack[i];
+-          if (Val.Kind == tok::annot_unreal_specifier) {
+-            ND->UnrealSpecifiers.push_back(Val.SpecData);
+-          } else if (Val.Kind == tok::annot_unreal_metadata_specifier) {
+-            ND->UnrealMetadata.push_back(Val.SpecData);
+-          }
++      case tok::annot_unreal_metadata_specifier: {
++        if (ND->UnrealType != UnrealType::UT_None) {
++          ND->UnrealMetadata.push_back(Current.SpecData);
+         }
++        break;
++      }
+       }
+-      this->UnrealStack.clear();
++      this->UnrealStack.erase(this->UnrealStack.begin());
+     }
+   }
+ }
++#if defined(__clang__)
++#pragma clang diagnostic pop
++#elif defined(_MSC_VER)
++#pragma warning(pop)
++#endif
+ // @unreal: END
+ 
+ void Sema::AddAlignmentAttributesForRecord(RecordDecl *RD) {
+-- 
+2.50.1.windows.1
+

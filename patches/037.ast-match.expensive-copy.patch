@@ -1,0 +1,67 @@
+From 1f2bd5128801e3a6bcbb834c8b44a03fa1b2aa1f Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 16:24:13 +1100
+Subject: [PATCH] [ast-match] Add isExpensiveToCopy AST matcher
+
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 33 +++++++++++++++++++
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  1 +
+ 2 files changed, 34 insertions(+)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index 70c596add7ac..253322f7e20f 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -464,4 +464,37 @@ AST_MATCHER_P(CXXRecordDecl, withUInterface, internal::Matcher<CXXRecordDecl>,
+     return false;
+   }
+   return InnerMatcher.matches(*Node.UInterfaceAttachment, Finder, Builder);
++}
++
++inline bool classHasTrivialCopyAndDestroy(QualType Type) {
++  auto *Record = Type->getAsCXXRecordDecl();
++  return Record && Record->hasDefinition() &&
++         !Record->hasNonTrivialCopyConstructor() &&
++         !Record->hasNonTrivialDestructor();
++}
++
++inline bool hasDeletedCopyConstructor(QualType Type) {
++  auto *Record = Type->getAsCXXRecordDecl();
++  if (!Record || !Record->hasDefinition())
++    return false;
++  for (const auto *Constructor : Record->ctors()) {
++    if (Constructor->isCopyConstructor() && Constructor->isDeleted())
++      return true;
++  }
++  return false;
++}
++
++inline std::optional<bool> isExpensiveToCopyNode(QualType Type,
++                                      const ASTContext &Context) {
++  if (Type->isDependentType() || Type->isIncompleteType())
++    return std::nullopt;
++  return !Type.isTriviallyCopyableType(Context) &&
++         !classHasTrivialCopyAndDestroy(Type) &&
++         !hasDeletedCopyConstructor(Type) && !Type->isObjCLifetimeType();
++}
++
++AST_MATCHER(QualType, isExpensiveToCopy) {
++  std::optional<bool> IsExpensive =
++      isExpensiveToCopyNode(Node, Finder->getASTContext());
++  return IsExpensive && *IsExpensive;
+ }
+\ No newline at end of file
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index e0df2534ba58..2f3e32932489 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -17,4 +17,5 @@ REGISTER_MATCHER(hasUMetadata);
+ REGISTER_MATCHER(hasUMetadataValue);
+ REGISTER_MATCHER(withIInterface);
+ REGISTER_MATCHER(withUInterface);
++REGISTER_MATCHER(isExpensiveToCopy);
+ // @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+

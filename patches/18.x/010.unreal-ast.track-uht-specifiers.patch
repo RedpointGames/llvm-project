@@ -1,0 +1,1109 @@
+From 91e2b4fea52b2693856602b76a8cf3e88d2384c0 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Mon, 24 Jun 2024 04:29:49 +1000
+Subject: [PATCH] [unreal-ast] Track UnrealHeaderTool specifiers in the Clang
+ AST
+
+---
+ clang/include/clang/AST/Decl.h                |  22 +-
+ clang/include/clang/AST/DeclCXX.h             |   6 +
+ .../clang/Basic/DiagnosticSemaKinds.td        |   6 +
+ clang/include/clang/Basic/TokenKinds.def      |  11 +
+ clang/include/clang/Lex/UnrealEngineData.h    |  38 +++
+ .../include/clang/Lex/UnrealEnginePPTagger.h  |  32 ++
+ clang/include/clang/Parse/Parser.h            |  15 +
+ clang/include/clang/Sema/Sema.h               |  27 ++
+ clang/lib/AST/DeclCXX.cpp                     |   7 +-
+ clang/lib/Lex/CMakeLists.txt                  |   3 +
+ clang/lib/Lex/Preprocessor.cpp                |   8 +
+ clang/lib/Lex/UnrealEnginePPTagger.cpp        | 321 ++++++++++++++++++
+ clang/lib/Parse/ParseDecl.cpp                 |  21 ++
+ clang/lib/Parse/ParseDeclCXX.cpp              |  59 +++-
+ clang/lib/Parse/ParsePragma.cpp               |  38 +++
+ clang/lib/Parse/Parser.cpp                    |  16 +
+ clang/lib/Sema/Sema.cpp                       |   3 +
+ clang/lib/Sema/SemaAttr.cpp                   |  70 ++++
+ clang/lib/Sema/SemaDecl.cpp                   |  30 ++
+ 19 files changed, 729 insertions(+), 4 deletions(-)
+ create mode 100644 clang/include/clang/Lex/UnrealEngineData.h
+ create mode 100644 clang/include/clang/Lex/UnrealEnginePPTagger.h
+ create mode 100644 clang/lib/Lex/UnrealEnginePPTagger.cpp
+
+diff --git a/clang/include/clang/AST/Decl.h b/clang/include/clang/AST/Decl.h
+index f26fb5ad5f13..ccbf348b00a6 100644
+--- a/clang/include/clang/AST/Decl.h
++++ b/clang/include/clang/AST/Decl.h
+@@ -34,6 +34,9 @@
+ #include "clang/Basic/SourceLocation.h"
+ #include "clang/Basic/Specifiers.h"
+ #include "clang/Basic/Visibility.h"
++// @unreal: BEGIN
++#include "clang/Lex/UnrealEngineData.h"
++// @unreal: END
+ #include "llvm/ADT/APSInt.h"
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/PointerIntPair.h"
+@@ -259,9 +262,26 @@ private:
+ 
+ protected:
+   NamedDecl(Kind DK, DeclContext *DC, SourceLocation L, DeclarationName N)
+-      : Decl(DK, DC, L), Name(N) {}
++      : Decl(DK, DC, L), Name(N)
++      // @unreal: BEGIN
++      , UnrealType(UnrealType::UT_None), UnrealSpecifiers(), UnrealMetadata()
++      // @unreal: END
++      {}
+ 
+ public:
++  // @unreal: BEGIN
++  /// The Unreal type flag for this decl.
++  unsigned UnrealType;
++
++  /// The Unreal specifiers that are associated with this decl.
++  /// todo: Make this a map for faster lookups.
++  std::vector<UnrealSpecifier> UnrealSpecifiers;
++
++  /// The Unreal metadata that is associated with this decl.
++  /// todo: Make this a map for faster lookups.
++  std::vector<UnrealSpecifier> UnrealMetadata;
++  // @unreal: END
++
+   /// Get the identifier that names this declaration, if there is one.
+   ///
+   /// This will return NULL if this declaration has no name (e.g., for
+diff --git a/clang/include/clang/AST/DeclCXX.h b/clang/include/clang/AST/DeclCXX.h
+index 9cebaff63bb0..9b126e56825f 100644
+--- a/clang/include/clang/AST/DeclCXX.h
++++ b/clang/include/clang/AST/DeclCXX.h
+@@ -514,6 +514,12 @@ protected:
+                 IdentifierInfo *Id, CXXRecordDecl *PrevDecl);
+ 
+ public:
++  // @unreal: BEGIN
++  // Unreal attachments for interfaces.
++  CXXRecordDecl *IInterfaceAttachment;
++  CXXRecordDecl *UInterfaceAttachment;
++  // @unreal: END
++
+   /// Iterator that traverses the base classes of a class.
+   using base_class_iterator = CXXBaseSpecifier *;
+ 
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index ef8c111b1d8c..02a6d8dbe863 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3461,6 +3461,12 @@ def err_conflicting_codeseg_attribute : Error<
+ def warn_duplicate_codeseg_attribute : Warning<
+   "duplicate code segment specifiers">, InGroup<Section>;
+ 
++// @unreal: BEGIN
++def warn_unreal_data_discarded_on_new_specifier : Warning<
++  "previous Unreal Engine data discarded on new specifier">,
++  InGroup<DiagGroup<"unreal-engine">>;
++// @unreal: END
++
+ def err_anonymous_property: Error<
+   "anonymous property is not supported">;
+ def err_property_is_variably_modified : Error<
+diff --git a/clang/include/clang/Basic/TokenKinds.def b/clang/include/clang/Basic/TokenKinds.def
+index c10e2adfbe6e..522c8f1a9d20 100644
+--- a/clang/include/clang/Basic/TokenKinds.def
++++ b/clang/include/clang/Basic/TokenKinds.def
+@@ -986,6 +986,17 @@ ANNOTATION(header_unit)
+ // Annotation for end of input in clang-repl.
+ ANNOTATION(repl_input_end)
+ 
++// @unreal: BEGIN
++// Unreal Engine annotations
++PRAGMA_ANNOTATION(unreal_uclass)
++PRAGMA_ANNOTATION(unreal_ufunction)
++PRAGMA_ANNOTATION(unreal_uproperty)
++PRAGMA_ANNOTATION(unreal_uinterface)
++PRAGMA_ANNOTATION(unreal_ustruct)
++PRAGMA_ANNOTATION(unreal_specifier)
++PRAGMA_ANNOTATION(unreal_metadata_specifier)
++// @unreal: END
++
+ #undef PRAGMA_ANNOTATION
+ #undef ANNOTATION
+ #undef TESTING_KEYWORD
+diff --git a/clang/include/clang/Lex/UnrealEngineData.h b/clang/include/clang/Lex/UnrealEngineData.h
+new file mode 100644
+index 000000000000..667d8f1b1f79
+--- /dev/null
++++ b/clang/include/clang/Lex/UnrealEngineData.h
+@@ -0,0 +1,38 @@
++// Copyright June Rhodes. Apache License v2.0 with LLVM Exceptions.
++
++// @unreal: BEGIN
++#ifndef LLVM_CLANG_UNREAL_ENGINE_DATA_H
++#define LLVM_CLANG_UNREAL_ENGINE_DATA_H
++
++#include <string>
++
++namespace clang {
++
++enum UnrealType {
++  UT_None = 0,
++  UT_UClass,
++  UT_UStruct,
++  UT_UInterface,
++  UT_UFunction,
++  UT_UProperty,
++
++  // Assigned to the IInterface associated classes of UInterface, since Unreal interfaces
++  // have two CXXRecordDecls that make them up.
++  UT_IInterface
++};
++
++struct UnrealSpecifier {
++  /// The specifier name. This is always converted to lowercase, since Unreal
++  /// specifiers are case insensitive.
++  std::string SpecifierName;
++
++  /// If the specifier has a value (after an = sign), this contains the value of
++  /// the specifier. Eliminates any quotes around the value as well. If the
++  /// specifier does not have a value, this will be an empty string.
++  std::string SpecifierValue;
++};
++
++}; // namespace clang
++
++#endif
++// @unreal: END
+\ No newline at end of file
+diff --git a/clang/include/clang/Lex/UnrealEnginePPTagger.h b/clang/include/clang/Lex/UnrealEnginePPTagger.h
+new file mode 100644
+index 000000000000..4847d1678f7c
+--- /dev/null
++++ b/clang/include/clang/Lex/UnrealEnginePPTagger.h
+@@ -0,0 +1,32 @@
++// Copyright June Rhodes. Apache License v2.0 with LLVM Exceptions.
++
++// @unreal: BEGIN
++#ifndef LLVM_CLANG_UNREAL_ENGINE_PP_TAGGER_H
++#define LLVM_CLANG_UNREAL_ENGINE_PP_TAGGER_H
++
++#include "clang/Lex/PPCallbacks.h"
++#include "clang/Lex/UnrealEngineData.h"
++
++namespace clang {
++
++class UnrealEnginePPTagger : public PPCallbacks {
++  Preprocessor &PP;
++  SourceManager *SM;
++  std::vector<UnrealSpecifier *> AllocatedStrings;
++
++  void *AllocSpecifier(const std::string &InSpecifierName,
++                       const std::string &InSpecifierValue);
++
++public:
++  UnrealEnginePPTagger(Preprocessor &PP, SourceManager *SM);
++  ~UnrealEnginePPTagger();
++
++  virtual void MacroExpands(const Token &MacroNameTok,
++                            const MacroDefinition &MD, SourceRange Range,
++                            const MacroArgs *Args) override;
++};
++
++}; // namespace clang
++
++#endif
++// @unreal: END
+\ No newline at end of file
+diff --git a/clang/include/clang/Parse/Parser.h b/clang/include/clang/Parse/Parser.h
+index ffbde370e8f9..e95675feb791 100644
+--- a/clang/include/clang/Parse/Parser.h
++++ b/clang/include/clang/Parse/Parser.h
+@@ -17,6 +17,9 @@
+ #include "clang/Basic/OperatorPrecedence.h"
+ #include "clang/Lex/CodeCompletionHandler.h"
+ #include "clang/Lex/Preprocessor.h"
++// @unreal: BEGIN
++#include "clang/Lex/UnrealEngineData.h"
++// @unreal: END
+ #include "clang/Sema/Sema.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Frontend/OpenMP/OMPContext.h"
+@@ -730,6 +733,18 @@ private:
+   /// #pragma GCC visibility...
+   void HandlePragmaVisibility();
+ 
++  // @unreal: BEGIN
++  /// Consume any and all Unreal Engine tokens into the stack.
++  void ConsumePragmaUnreal();
++
++  /// Checks that there aren't any Unreal tokens on the stack.
++  void CheckNoPragmaUnreal();
++
++  /// Handle Unreal Engine semantics.
++  void HandlePragmaUnreal(tok::TokenKind Kind,
++                          const UnrealSpecifier &UnrealData);
++  // @unreal: END
++
+   /// Handle the annotation token produced for
+   /// #pragma pack...
+   void HandlePragmaPack();
+diff --git a/clang/include/clang/Sema/Sema.h b/clang/include/clang/Sema/Sema.h
+index 6adb8fb7966b..b325fd861d47 100644
+--- a/clang/include/clang/Sema/Sema.h
++++ b/clang/include/clang/Sema/Sema.h
+@@ -47,6 +47,9 @@
+ #include "clang/Basic/Specifiers.h"
+ #include "clang/Basic/TemplateKinds.h"
+ #include "clang/Basic/TypeTraits.h"
++// @unreal: BEGIN
++#include "clang/Lex/UnrealEngineData.h"
++// @unreal: END
+ #include "clang/Sema/AnalysisBasedWarnings.h"
+ #include "clang/Sema/CleanupInfo.h"
+ #include "clang/Sema/DeclSpec.h"
+@@ -699,6 +702,20 @@ public:
+ 
+   // #pragma strict_gs_check.
+   PragmaStack<bool> StrictGuardStackCheckStack;
++  
++  // @unreal: BEGIN
++  // Unreal stacks.
++  struct UnrealSpecifierSema {
++    tok::TokenKind Kind;
++    clang::UnrealSpecifier SpecData;
++    UnrealSpecifierSema(tok::TokenKind InKind,
++                        const clang::UnrealSpecifier &InSpecData)
++        : Kind(InKind), SpecData(InSpecData){};
++  };
++  std::vector<UnrealSpecifierSema> UnrealStack;
++  std::map<std::string, CXXRecordDecl *>
++      ExpectedIInterfaceToUInterfaceAttachments;
++  // @unreal: END
+ 
+   // This stack tracks the current state of Sema.CurFPFeatures.
+   PragmaStack<FPOptionsOverride> FpPragmaStack;
+@@ -10904,6 +10921,11 @@ public:
+   void ActOnPragmaOptionsAlign(PragmaOptionsAlignKind Kind,
+                                SourceLocation PragmaLoc);
+ 
++  // @unreal: BEGIN
++  void ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
++                       const UnrealSpecifier &UnrealData);
++  // @unreal: END
++
+   /// ActOnPragmaPack - Called on well formed \#pragma pack(...).
+   void ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
+                        StringRef SlotLabel, Expr *Alignment);
+@@ -11066,6 +11088,11 @@ public:
+   /// Called to set exception behavior for floating point operations.
+   void setExceptionMode(SourceLocation Loc, LangOptions::FPExceptionModeKind);
+ 
++  // @unreal: BEGIN
++  /// Called to add specifiers from the Unreal stack.
++  void AddUnrealSpecifiersForDecl(Decl *RD);
++  // @unreal: END
++
+   /// AddAlignmentAttributesForRecord - Adds any needed alignment attributes to
+   /// a the record decl, to handle '\#pragma pack' and '\#pragma options align'.
+   void AddAlignmentAttributesForRecord(RecordDecl *RD);
+diff --git a/clang/lib/AST/DeclCXX.cpp b/clang/lib/AST/DeclCXX.cpp
+index 117e802dae2d..9200bba40738 100644
+--- a/clang/lib/AST/DeclCXX.cpp
++++ b/clang/lib/AST/DeclCXX.cpp
+@@ -125,8 +125,11 @@ CXXRecordDecl::CXXRecordDecl(Kind K, TagKind TK, const ASTContext &C,
+                              SourceLocation IdLoc, IdentifierInfo *Id,
+                              CXXRecordDecl *PrevDecl)
+     : RecordDecl(K, TK, C, DC, StartLoc, IdLoc, Id, PrevDecl),
+-      DefinitionData(PrevDecl ? PrevDecl->DefinitionData
+-                              : nullptr) {}
++      DefinitionData(PrevDecl ? PrevDecl->DefinitionData : nullptr)
++      // @unreal: BEGIN
++      , IInterfaceAttachment(nullptr), UInterfaceAttachment(nullptr) 
++      // @unreal: END
++      {}
+ 
+ CXXRecordDecl *CXXRecordDecl::Create(const ASTContext &C, TagKind TK,
+                                      DeclContext *DC, SourceLocation StartLoc,
+diff --git a/clang/lib/Lex/CMakeLists.txt b/clang/lib/Lex/CMakeLists.txt
+index 766336b89a23..f0267b61a698 100644
+--- a/clang/lib/Lex/CMakeLists.txt
++++ b/clang/lib/Lex/CMakeLists.txt
+@@ -29,6 +29,9 @@ add_clang_library(clangLex
+   ScratchBuffer.cpp
+   TokenConcatenation.cpp
+   TokenLexer.cpp
++  # @unreal: BEGIN
++  UnrealEnginePPTagger.cpp
++  # @unreal: END
+ 
+   LINK_LIBS
+   clangBasic
+diff --git a/clang/lib/Lex/Preprocessor.cpp b/clang/lib/Lex/Preprocessor.cpp
+index 7fdb5d4c0d7b..ac5203f06026 100644
+--- a/clang/lib/Lex/Preprocessor.cpp
++++ b/clang/lib/Lex/Preprocessor.cpp
+@@ -51,6 +51,9 @@
+ #include "clang/Lex/ScratchBuffer.h"
+ #include "clang/Lex/Token.h"
+ #include "clang/Lex/TokenLexer.h"
++// @unreal: BEGIN
++#include "clang/Lex/UnrealEnginePPTagger.h"
++// @unreal: END
+ #include "llvm/ADT/APInt.h"
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/DenseMap.h"
+@@ -163,6 +166,11 @@ Preprocessor::Preprocessor(std::shared_ptr<PreprocessorOptions> PPOpts,
+     PreambleConditionalStack.startRecording();
+ 
+   MaxTokens = LangOpts.MaxTokens;
++
++  // @unreal: BEGIN
++  // Always register Unreal Engine PP callbacks.
++  this->addPPCallbacks(std::make_unique<UnrealEnginePPTagger>(*this, &SM));
++  // @unreal: END
+ }
+ 
+ Preprocessor::~Preprocessor() {
+diff --git a/clang/lib/Lex/UnrealEnginePPTagger.cpp b/clang/lib/Lex/UnrealEnginePPTagger.cpp
+new file mode 100644
+index 000000000000..67ac72d9debc
+--- /dev/null
++++ b/clang/lib/Lex/UnrealEnginePPTagger.cpp
+@@ -0,0 +1,321 @@
++// Copyright June Rhodes. Apache License v2.0 with LLVM Exceptions.
++
++// @unreal: BEGIN
++#include "clang/Lex/UnrealEnginePPTagger.h"
++#include "clang/Basic/IdentifierTable.h"
++#include "clang/Lex/MacroArgs.h"
++#include "clang/Lex/MacroInfo.h"
++#include "clang/Lex/Preprocessor.h"
++#include "clang/Lex/Token.h"
++#include "llvm/Support/raw_ostream.h"
++
++using namespace clang;
++
++UnrealEnginePPTagger::UnrealEnginePPTagger(Preprocessor &PP, SourceManager *SM)
++    : PP(PP), SM(SM){};
++
++UnrealEnginePPTagger::~UnrealEnginePPTagger() {
++
++  for (const auto &Str : this->AllocatedStrings) {
++    delete Str;
++  }
++  this->AllocatedStrings.clear();
++}
++
++void *
++UnrealEnginePPTagger::AllocSpecifier(const std::string &InSpecifierName,
++                                     const std::string &InSpecifierValue) {
++  UnrealSpecifier *Ptr = new UnrealSpecifier();
++  Ptr->SpecifierName = InSpecifierName;
++  Ptr->SpecifierValue = InSpecifierValue;
++  this->AllocatedStrings.push_back(Ptr);
++  return (void *)Ptr;
++}
++
++inline bool iequals(const llvm::StringRef &a, const std::string &b) {
++  unsigned int sz = a.size();
++  if (b.size() != sz)
++    return false;
++  for (unsigned int i = 0; i < sz; ++i)
++    if (tolower(a[i]) != tolower(b[i]))
++      return false;
++  return true;
++}
++
++struct TokenInfo {
++  tok::TokenKind Kind;
++  void *Data;
++  TokenInfo(tok::TokenKind InKind, void *InData) : Kind(InKind), Data(InData){};
++};
++
++void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,
++                                        const MacroDefinition &MD,
++                                        SourceRange Range,
++                                        const MacroArgs *Args) {
++  if (MacroNameTok.isAnyIdentifier()) {
++    llvm::StringRef MacroName = MacroNameTok.getIdentifierInfo()->getName();
++    bool IsRecognised = false;
++    std::vector<TokenInfo> TokensToPush;
++    if (MacroName == "UCLASS") {
++      TokensToPush.push_back(
++          TokenInfo(tok::TokenKind::annot_unreal_uclass, nullptr));
++      IsRecognised = true;
++    } else if (MacroName == "USTRUCT") {
++      TokensToPush.push_back(
++          TokenInfo(tok::TokenKind::annot_unreal_ustruct, nullptr));
++      IsRecognised = true;
++    } else if (MacroName == "UINTERFACE") {
++      TokensToPush.push_back(
++          TokenInfo(tok::TokenKind::annot_unreal_uinterface, nullptr));
++      IsRecognised = true;
++    } else if (MacroName == "UPROPERTY") {
++      TokensToPush.push_back(
++          TokenInfo(tok::TokenKind::annot_unreal_uproperty, nullptr));
++      IsRecognised = true;
++    } else if (MacroName == "UFUNCTION") {
++      TokensToPush.push_back(
++          TokenInfo(tok::TokenKind::annot_unreal_ufunction, nullptr));
++      IsRecognised = true;
++    }
++    if (IsRecognised && Args != nullptr) {
++      assert(Args->getNumMacroArguments() == 1 &&
++             "Expected U* specifier to only have one (varargs) argument");
++      const Token *ArgTokens = Args->getUnexpArgument(0);
++      std::string CurrentIdentifier = "";
++      unsigned int i = 0;
++      unsigned int ArgsLength = Args->getArgLength(ArgTokens);
++#define CONSUME_PP_TOKEN() (ArgTokens[i++])
++#define SKIP_PP_TOKEN() i += 1
++#define PEEK_PP_TOKEN() (ArgTokens[i])
++#define IS_LAST() (i >= ArgsLength)
++#define STRICT_MODE 1
++#if defined(STRICT_MODE)
++#define MALFORMED()                                                            \
++  assert(false && "Malformed");                                                \
++  Malformed = true;                                                            \
++  break;
++#else
++#define MALFORMED()                                                            \
++  Malformed = true;                                                            \
++  break;
++#endif
++      bool Malformed = false;
++      while (i < ArgsLength && !Malformed) {
++        // Consume token.
++        const Token &Tok = CONSUME_PP_TOKEN();
++        std::string SpecifierName;
++        if (Tok.getKind() == tok::TokenKind::identifier) {
++          SpecifierName = Tok.getIdentifierInfo()->getName().str();
++        } else if (Tok.getKind() == tok::TokenKind::kw_const) {
++          SpecifierName = "const";
++        } else {
++          MALFORMED();
++        }
++        if (IS_LAST() || PEEK_PP_TOKEN().getKind() == tok::TokenKind::comma) {
++          // This is the last standalone specifier.
++          TokensToPush.push_back(
++              TokenInfo(tok::TokenKind::annot_unreal_specifier,
++                        this->AllocSpecifier(SpecifierName, "")));
++          if (IS_LAST()) {
++            // No more arguments.
++            break;
++          } else {
++            // Just skip the current comma, and continue to
++            // process the next specifier.
++            SKIP_PP_TOKEN();
++            continue;
++          }
++        }
++        // We have more tokens and the current token is not a comma.
++        // If it's not an equals sign, this is malformed.
++        if (PEEK_PP_TOKEN().getKind() != tok::TokenKind::equal) {
++          MALFORMED();
++        }
++        SKIP_PP_TOKEN(); // Skip the equal sign.
++        if (IS_LAST()) {
++          MALFORMED();
++        }
++        bool IsNegative = false;
++        if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::minus) {
++          IsNegative = true;
++          CONSUME_PP_TOKEN();
++        }
++        if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::identifier) {
++          // Value is an identifier, like a function name.
++          TokensToPush.push_back(TokenInfo(
++              tok::TokenKind::annot_unreal_specifier,
++              this->AllocSpecifier(
++                  SpecifierName,
++                  PEEK_PP_TOKEN().getIdentifierInfo()->getName().str())));
++          SKIP_PP_TOKEN(); // We used the token.
++        } else if (PEEK_PP_TOKEN().getKind() ==
++                       tok::TokenKind::string_literal ||
++                   PEEK_PP_TOKEN().getKind() ==
++                       tok::TokenKind::numeric_constant) {
++          // Value is a string or numeric literal.
++          TokensToPush.push_back(TokenInfo(
++              tok::TokenKind::annot_unreal_specifier,
++              this->AllocSpecifier(
++                  SpecifierName, (IsNegative ? "-" : "") +
++                                     StringRef(PEEK_PP_TOKEN().getLiteralData(),
++                                               PEEK_PP_TOKEN().getLength())
++                                         .str())));
++          SKIP_PP_TOKEN(); // We used the token.
++        } else if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_true ||
++                   PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_false) {
++          // Value is a boolean.
++          TokensToPush.push_back(
++              TokenInfo(tok::TokenKind::annot_unreal_specifier,
++                        this->AllocSpecifier(SpecifierName,
++                                             PEEK_PP_TOKEN().getKind() ==
++                                                     tok::TokenKind::kw_true
++                                                 ? "true"
++                                                 : "false")));
++          SKIP_PP_TOKEN(); // We used the token.
++        } else if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::l_paren) {
++          bool AddAsMetadata = false;
++          // We only support meta lists at the moment; all other lists are
++          // simply added without a value. However, for those other lists, we
++          // still need to parse them.
++          if (iequals(SpecifierName, "meta")) {
++            AddAsMetadata = true;
++          } else {
++            TokensToPush.push_back(
++                TokenInfo(tok::TokenKind::annot_unreal_specifier,
++                          this->AllocSpecifier(SpecifierName, "")));
++          }
++          SKIP_PP_TOKEN(); // Skip the left paren.
++          while (i < ArgsLength && !Malformed) {
++            // Consume token.
++            const Token &Tok = CONSUME_PP_TOKEN();
++            llvm::StringRef MetadataName;
++            if (Tok.getKind() == tok::TokenKind::identifier) {
++              MetadataName = Tok.getIdentifierInfo()->getName();
++            } else if (Tok.getKind() == tok::TokenKind::string_literal) {
++              // Doesn't happen for metadata, but can happen for other kinds of
++              // lists that we currently discard.
++              MetadataName = StringRef(Tok.getLiteralData(), Tok.getLength());
++            } else {
++              // Invalid formed specifier list.
++              MALFORMED();
++            }
++            if (IS_LAST() ||
++                PEEK_PP_TOKEN().getKind() == tok::TokenKind::comma ||
++                PEEK_PP_TOKEN().getKind() == tok::TokenKind::r_paren) {
++              // This is the last standalone specifier.
++              if (AddAsMetadata) {
++                TokensToPush.push_back(
++                    TokenInfo(tok::TokenKind::annot_unreal_metadata_specifier,
++                              this->AllocSpecifier(MetadataName.str(), "")));
++              }
++              if (IS_LAST()) {
++                // No more arguments.
++                break;
++              } else if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::r_paren) {
++                // Consume the right paren, and break so we go back to
++                // processing specifiers.
++                SKIP_PP_TOKEN();
++                break;
++              } else {
++                // Just skip the current comma, and continue to
++                // process the next metadata.
++                SKIP_PP_TOKEN();
++                continue;
++              }
++            }
++            // We have more tokens and the current token is not a comma.
++            // If it's not an equals sign, this is malformed.
++            if (PEEK_PP_TOKEN().getKind() != tok::TokenKind::equal) {
++              MALFORMED();
++            }
++            SKIP_PP_TOKEN(); // Skip the equal sign.
++            if (IS_LAST()) {
++              MALFORMED();
++            }
++            bool IsNegative = false;
++            if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::minus) {
++              IsNegative = true;
++              CONSUME_PP_TOKEN();
++            }
++            if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::identifier) {
++              // Value is an identifier, like a function name.
++              if (AddAsMetadata) {
++                TokensToPush.push_back(TokenInfo(
++                    tok::TokenKind::annot_unreal_metadata_specifier,
++                    this->AllocSpecifier(
++                        MetadataName.str(),
++                        PEEK_PP_TOKEN().getIdentifierInfo()->getName().str())));
++              }
++              SKIP_PP_TOKEN(); // We used the token.
++            } else if (PEEK_PP_TOKEN().getKind() ==
++                           tok::TokenKind::string_literal ||
++                       PEEK_PP_TOKEN().getKind() ==
++                           tok::TokenKind::numeric_constant) {
++              // Value is a string or numeric literal.
++              if (AddAsMetadata) {
++                TokensToPush.push_back(TokenInfo(
++                    tok::TokenKind::annot_unreal_metadata_specifier,
++                    this->AllocSpecifier(
++                        MetadataName.str(),
++                        (IsNegative ? "-" : "") +
++                            StringRef(PEEK_PP_TOKEN().getLiteralData(),
++                                      PEEK_PP_TOKEN().getLength())
++                                .str())));
++              }
++              SKIP_PP_TOKEN(); // We used the token.
++            } else if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_true ||
++                       PEEK_PP_TOKEN().getKind() == tok::TokenKind::kw_false) {
++              // Value is a boolean.
++              if (AddAsMetadata) {
++                TokensToPush.push_back(TokenInfo(
++                    tok::TokenKind::annot_unreal_metadata_specifier,
++                    this->AllocSpecifier(MetadataName.str(),
++                                         PEEK_PP_TOKEN().getKind() ==
++                                                 tok::TokenKind::kw_true
++                                             ? "true"
++                                             : "false")));
++              }
++              SKIP_PP_TOKEN(); // We used the token.
++            } else {
++              MALFORMED();
++            }
++            if (!IS_LAST()) {
++              if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::comma) {
++                SKIP_PP_TOKEN(); // Skip the comma.
++              } else if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::r_paren) {
++                // Consume the right paren, and break so we go back to
++                // processing specifiers.
++                SKIP_PP_TOKEN();
++                break;
++              } else {
++                MALFORMED();
++              }
++            }
++          }
++          if (Malformed) {
++            break;
++          }
++        }
++        if (!IS_LAST()) {
++          if (PEEK_PP_TOKEN().getKind() == tok::TokenKind::comma) {
++            SKIP_PP_TOKEN(); // Skip the comma.
++          } else {
++            MALFORMED();
++          }
++        }
++      }
++    }
++
++    // Now push the tokens into the stream. Due to the way EnterAnnotationToken
++    // works, we have to push them in *REVERSE ORDER*.
++    if (TokensToPush.size() > 0) {
++      for (int i = TokensToPush.size() - 1; i >= 0; i--) {
++        this->PP.EnterAnnotationToken(
++            SourceRange(Range.getBegin(), Range.getBegin()),
++            TokensToPush[i].Kind, TokensToPush[i].Data);
++      }
++    }
++  }
++}
++
++// @unreal: END
+\ No newline at end of file
+diff --git a/clang/lib/Parse/ParseDecl.cpp b/clang/lib/Parse/ParseDecl.cpp
+index 356e7851ec63..f6c172fbfa1d 100644
+--- a/clang/lib/Parse/ParseDecl.cpp
++++ b/clang/lib/Parse/ParseDecl.cpp
+@@ -4717,6 +4717,20 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
+       continue;
+     }
+ 
++    // @unreal: BEGIN
++    if (Tok.isOneOf(tok::annot_unreal_ufunction, tok::annot_unreal_uproperty,
++                    tok::annot_unreal_specifier,
++                    tok::annot_unreal_metadata_specifier)) {
++      if (Tok.getAnnotationValue() == nullptr) {
++        HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
++      } else {
++        HandlePragmaUnreal(Tok.getKind(),
++                           *(UnrealSpecifier *)Tok.getAnnotationValue());
++      }
++      continue;
++    }
++    // @unreal: END
++
+     // Parse _Static_assert declaration.
+     if (Tok.isOneOf(tok::kw__Static_assert, tok::kw_static_assert)) {
+       SourceLocation DeclEnd;
+@@ -6172,6 +6186,9 @@ void Parser::ParseTypeQualifierListOpt(
+ void Parser::ParseDeclarator(Declarator &D) {
+   /// This implements the 'declarator' production in the C grammar, then checks
+   /// for well-formedness and issues diagnostics.
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
+   Actions.runWithSufficientStackSpace(D.getBeginLoc(), [&] {
+     ParseDeclaratorInternal(D, &Parser::ParseDirectDeclarator);
+   });
+@@ -6472,6 +6489,10 @@ static SourceLocation getMissingDeclaratorIdLoc(Declarator &D,
+ void Parser::ParseDirectDeclarator(Declarator &D) {
+   DeclaratorScopeObj DeclScopeObj(*this, D.getCXXScopeSpec());
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   if (getLangOpts().CPlusPlus && D.mayHaveIdentifier()) {
+     // This might be a C++17 structured binding.
+     if (Tok.is(tok::l_square) && !D.mayOmitIdentifier() &&
+diff --git a/clang/lib/Parse/ParseDeclCXX.cpp b/clang/lib/Parse/ParseDeclCXX.cpp
+index c0d771dc93da..789244682c4c 100644
+--- a/clang/lib/Parse/ParseDeclCXX.cpp
++++ b/clang/lib/Parse/ParseDeclCXX.cpp
+@@ -2697,6 +2697,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+     SkipUntil(tok::r_brace, StopAtSemi);
+     return nullptr;
+   }
++  
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
+ 
+   // Turn on colon protection early, while parsing declspec, although there is
+   // nothing to protect there. It prevents from false errors if error recovery
+@@ -2759,6 +2763,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+     }
+   }
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   // static_assert-declaration. A templated static_assert declaration is
+   // diagnosed in Parser::ParseSingleDeclarationAfterTemplate.
+   if (!TemplateInfo.Kind &&
+@@ -2768,6 +2776,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+         DeclGroupRef(ParseStaticAssertDeclaration(DeclEnd)));
+   }
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   if (Tok.is(tok::kw_template)) {
+     assert(!TemplateInfo.TemplateParams &&
+            "Nested template improperly parsed?");
+@@ -2778,6 +2790,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+             DeclaratorContext::Member, DeclEnd, AccessAttrs, AS)));
+   }
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   // Handle:  member-declaration ::= '__extension__' member-declaration
+   if (Tok.is(tok::kw___extension__)) {
+     // __extension__ silences extension warnings in the subexpression.
+@@ -2787,16 +2803,35 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+                                           TemplateDiags);
+   }
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   ParsedAttributes DeclAttrs(AttrFactory);
+   // Optional C++11 attribute-specifier
+   MaybeParseCXX11Attributes(DeclAttrs);
+ 
++  // @unreal: BEGIN
++  // We can get UFUNCTION specifiers after a UE_DEPRECATED, which means the
++  // tokens occur here instead. Consume all Unreal tokens and push them onto
++  // the stack.
++  ConsumePragmaUnreal();
++  // @unreal: END
++
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   // The next token may be an OpenMP pragma annotation token. That would
+   // normally be handled from ParseCXXClassMemberDeclarationWithPragmas, but in
+   // this case, it came from an *attribute* rather than a pragma. Handle it now.
+   if (Tok.is(tok::annot_attr_openmp))
+     return ParseOpenMPDeclarativeDirectiveWithExtDecl(AS, DeclAttrs);
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   if (Tok.is(tok::kw_using)) {
+     // Eat 'using'.
+     SourceLocation UsingLoc = ConsumeToken();
+@@ -2825,6 +2860,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+   // Hold late-parsed attributes so we can attach a Decl to them later.
+   LateParsedAttrList CommonLateParsedAttrs;
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   // decl-specifier-seq:
+   // Parse the common declaration-specifiers piece.
+   ParsingDeclSpec DS(*this, TemplateDiags);
+@@ -2865,6 +2904,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+                                   : nullptr,
+       TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->size() : 0);
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   if (TryConsumeToken(tok::semi)) {
+     if (DS.isFriendSpecified())
+       ProhibitAttributes(DeclAttrs);
+@@ -2922,6 +2965,10 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
+   ExprResult TrailingRequiresClause;
+   bool ExpectSemi = true;
+ 
++  // @unreal: BEGIN
++  CheckNoPragmaUnreal();
++  // @unreal: END
++
+   // C++20 [temp.spec] 13.9/6.
+   // This disables the access checking rules for member function template
+   // explicit instantiation and explicit specialization.
+@@ -3360,7 +3407,17 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
+     ConsumeExtraSemi(InsideStruct, TagType);
+     return nullptr;
+ 
+-    // Handle pragmas that can appear as member declarations.
++  case tok::annot_unreal_ufunction:
++  case tok::annot_unreal_uproperty:
++  case tok::annot_unreal_specifier:
++  case tok::annot_unreal_metadata_specifier:
++    if (Tok.getAnnotationValue() == nullptr) {
++      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
++    } else {
++      HandlePragmaUnreal(Tok.getKind(),
++                         *(UnrealSpecifier *)Tok.getAnnotationValue());
++    }
++    return nullptr;
+   case tok::annot_pragma_vis:
+     HandlePragmaVisibility();
+     return nullptr;
+diff --git a/clang/lib/Parse/ParsePragma.cpp b/clang/lib/Parse/ParsePragma.cpp
+index 730ac1a0fee5..167471f04b3a 100644
+--- a/clang/lib/Parse/ParsePragma.cpp
++++ b/clang/lib/Parse/ParsePragma.cpp
+@@ -721,6 +721,44 @@ void Parser::HandlePragmaVisibility() {
+   Actions.ActOnPragmaVisibility(VisType, VisLoc);
+ }
+ 
++// @unreal: BEGIN
++/// Consume any and all Unreal Engine tokens into the stack.
++void Parser::ConsumePragmaUnreal() {
++  while (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
++                     tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
++                     tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
++                     tok::annot_unreal_metadata_specifier)) {
++    if (Tok.getAnnotationValue() == nullptr) {
++      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
++    } else {
++      HandlePragmaUnreal(Tok.getKind(),
++                         *(UnrealSpecifier *)Tok.getAnnotationValue());
++    }
++  }
++}
++
++void Parser::CheckNoPragmaUnreal() {
++  if (Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
++                  tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
++                  tok::annot_unreal_uproperty, tok::annot_unreal_specifier,
++                  tok::annot_unreal_metadata_specifier)) {
++    Diag(Tok.getLocation(), diag::err_expected_member_name_or_semi)
++        << SourceRange();
++    assert(!Tok.isOneOf(tok::annot_unreal_uclass, tok::annot_unreal_uinterface,
++                        tok::annot_unreal_ustruct, tok::annot_unreal_ufunction,
++                        tok::annot_unreal_uproperty,
++                        tok::annot_unreal_specifier,
++                        tok::annot_unreal_metadata_specifier));
++  }
++}
++
++void Parser::HandlePragmaUnreal(tok::TokenKind Kind,
++                                const UnrealSpecifier &UnrealData) {
++  Actions.ActOnUnrealData(Tok.getLocation(), Kind, UnrealData);
++  ConsumeAnnotationToken();
++}
++// @unreal: END
++
+ void Parser::HandlePragmaPack() {
+   assert(Tok.is(tok::annot_pragma_pack));
+   Sema::PragmaPackInfo *Info =
+diff --git a/clang/lib/Parse/Parser.cpp b/clang/lib/Parse/Parser.cpp
+index 0b092181bca7..48b135cd78b6 100644
+--- a/clang/lib/Parse/Parser.cpp
++++ b/clang/lib/Parse/Parser.cpp
+@@ -818,6 +818,22 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
+ 
+   Decl *SingleDecl = nullptr;
+   switch (Tok.getKind()) {
++  // @unreal: BEGIN
++  case tok::annot_unreal_uclass:
++  case tok::annot_unreal_ufunction:
++  case tok::annot_unreal_uproperty:
++  case tok::annot_unreal_uinterface:
++  case tok::annot_unreal_ustruct:
++  case tok::annot_unreal_specifier:
++  case tok::annot_unreal_metadata_specifier:
++    if (Tok.getAnnotationValue() == nullptr) {
++      HandlePragmaUnreal(Tok.getKind(), UnrealSpecifier());
++    } else {
++      HandlePragmaUnreal(Tok.getKind(),
++                         *(UnrealSpecifier *)Tok.getAnnotationValue());
++    }
++    return nullptr;
++  // @unreal: END
+   case tok::annot_pragma_vis:
+     HandlePragmaVisibility();
+     return nullptr;
+diff --git a/clang/lib/Sema/Sema.cpp b/clang/lib/Sema/Sema.cpp
+index 2d4e6d1d058c..4d20624a017d 100644
+--- a/clang/lib/Sema/Sema.cpp
++++ b/clang/lib/Sema/Sema.cpp
+@@ -200,6 +200,9 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
+       AlignPackStack(AlignPackInfo(getLangOpts().XLPragmaPack)),
+       DataSegStack(nullptr), BSSSegStack(nullptr), ConstSegStack(nullptr),
+       CodeSegStack(nullptr), StrictGuardStackCheckStack(false),
++      // @unreal: BEGIN
++      UnrealStack(), ExpectedIInterfaceToUInterfaceAttachments(),
++      // @unreal: END
+       FpPragmaStack(FPOptionsOverride()), CurInitSeg(nullptr),
+       VisContext(nullptr), PragmaAttributeCurrentTargetDecl(nullptr),
+       IsBuildingRecoveryCallExpr(false), LateTemplateParser(nullptr),
+diff --git a/clang/lib/Sema/SemaAttr.cpp b/clang/lib/Sema/SemaAttr.cpp
+index 0dcf42e48997..c4816eeadbdf 100644
+--- a/clang/lib/Sema/SemaAttr.cpp
++++ b/clang/lib/Sema/SemaAttr.cpp
+@@ -50,6 +50,45 @@ Sema::PragmaStackSentinelRAII::~PragmaStackSentinelRAII() {
+   }
+ }
+ 
++// @unreal: BEGIN
++void Sema::AddUnrealSpecifiersForDecl(Decl *D) {
++  if (this->UnrealStack.size() > 0) {
++    if (NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
++      if (FieldDecl *FD = dyn_cast<FieldDecl>(ND)) {
++        if (this->UnrealStack[0].Kind == tok::annot_unreal_uproperty) {
++          ND->UnrealType = UnrealType::UT_UProperty;
++        }
++      }
++      if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND)) {
++        if (this->UnrealStack[0].Kind == tok::annot_unreal_ufunction) {
++          ND->UnrealType = UnrealType::UT_UFunction;
++        }
++      }
++      if (RecordDecl *RD = dyn_cast<RecordDecl>(ND)) {
++        if (this->UnrealStack[0].Kind == tok::annot_unreal_uclass) {
++          ND->UnrealType = UnrealType::UT_UClass;
++        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_uinterface) {
++          ND->UnrealType = UnrealType::UT_UInterface;
++        } else if (this->UnrealStack[0].Kind == tok::annot_unreal_ustruct) {
++          ND->UnrealType = UnrealType::UT_UStruct;
++        }
++      }
++      if (ND->UnrealType != UnrealType::UT_None) {
++        for (int i = 1; i < this->UnrealStack.size(); i++) {
++          const auto &Val = this->UnrealStack[i];
++          if (Val.Kind == tok::annot_unreal_specifier) {
++            ND->UnrealSpecifiers.push_back(Val.SpecData);
++          } else if (Val.Kind == tok::annot_unreal_metadata_specifier) {
++            ND->UnrealMetadata.push_back(Val.SpecData);
++          }
++        }
++      }
++      this->UnrealStack.clear();
++    }
++  }
++}
++// @unreal: END
++
+ void Sema::AddAlignmentAttributesForRecord(RecordDecl *RD) {
+   AlignPackInfo InfoVal = AlignPackStack.CurrentValue;
+   AlignPackInfo::Mode M = InfoVal.getAlignMode();
+@@ -319,6 +358,37 @@ void Sema::ActOnPragmaClangSection(SourceLocation PragmaLoc,
+   CSec->PragmaLocation = PragmaLoc;
+ }
+ 
++// @unreal: BEGIN
++void Sema::ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
++                           const UnrealSpecifier &UnrealData) {
++  if (Kind == tok::TokenKind::annot_unreal_uinterface &&
++      UnrealStack.size() == 1 &&
++      UnrealStack[0].Kind == tok::TokenKind::annot_unreal_uclass) {
++    // This is an expected scenario because the UINTERFACE macro maps
++    // to 'UCLASS()' during actual compilation.
++    UnrealStack.clear();
++  }
++  if (UnrealStack.size() != 0 &&
++      (Kind == tok::TokenKind::annot_unreal_uclass ||
++       Kind == tok::TokenKind::annot_unreal_ufunction ||
++       Kind == tok::TokenKind::annot_unreal_ustruct ||
++       Kind == tok::TokenKind::annot_unreal_uinterface ||
++       Kind == tok::TokenKind::annot_unreal_uproperty)) {
++    Diag(TokenLoc, diag::warn_unreal_data_discarded_on_new_specifier);
++    UnrealStack.clear();
++  }
++  if (UnrealStack.size() == 0 &&
++      (Kind == tok::TokenKind::annot_unreal_specifier ||
++       Kind == tok::TokenKind::annot_unreal_metadata_specifier)) {
++    assert(false && "Pushing specifier or metadata onto Unreal Stack, but no"
++                    "macro was pushed first!");
++  }
++  UnrealStack.push_back(UnrealSpecifierSema(Kind, UnrealData));
++  assert((UnrealStack.size() < 1000) &&
++         "Unreal stack not being consumed by type declaration.");
++}
++// @unreal: END
++
+ void Sema::ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
+                            StringRef SlotLabel, Expr *alignment) {
+   bool IsXLPragma = getLangOpts().XLPragmaPack;
+diff --git a/clang/lib/Sema/SemaDecl.cpp b/clang/lib/Sema/SemaDecl.cpp
+index f5bb3e0b42e2..dec21e48875f 100644
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -9430,6 +9430,9 @@ static FunctionDecl *CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
+         SemaRef.Context, cast<CXXRecordDecl>(DC), D.getBeginLoc(), NameInfo, R,
+         TInfo, SC, SemaRef.getCurFPFeatures().isFPConstrained(), isInline,
+         ConstexprKind, SourceLocation(), TrailingRequiresClause);
++    // @unreal: BEGIN
++    SemaRef.AddUnrealSpecifiersForDecl(Ret);
++    // @unreal: END
+     IsVirtualOkay = !Ret->isStatic();
+     return Ret;
+   } else {
+@@ -18054,6 +18057,30 @@ CreateNewDecl:
+     }
+   }
+ 
++  // @unreal: BEGIN
++  AddUnrealSpecifiersForDecl(New);
++  if (CXXRecordDecl *CRD = dyn_cast<CXXRecordDecl>(New)) {
++    std::string InterfaceName = New->getName().str();
++    if (New->UnrealType == UnrealType::UT_UInterface) {
++      if (InterfaceName.size() > 0 && InterfaceName[0] == 'U') {
++        InterfaceName[0] = 'I';
++        this->ExpectedIInterfaceToUInterfaceAttachments.insert(
++            std::pair<std::string, CXXRecordDecl *>(InterfaceName, CRD));
++      }
++    } else if (New->UnrealType == UnrealType::UT_None &&
++               this->ExpectedIInterfaceToUInterfaceAttachments.find(
++                   InterfaceName) !=
++                   this->ExpectedIInterfaceToUInterfaceAttachments.end()) {
++      CXXRecordDecl *UInterfaceDecl =
++          this->ExpectedIInterfaceToUInterfaceAttachments[InterfaceName];
++      UInterfaceDecl->IInterfaceAttachment = CRD;
++      CRD->UInterfaceAttachment = UInterfaceDecl;
++      CRD->UnrealType = UnrealType::UT_IInterface;
++      this->ExpectedIInterfaceToUInterfaceAttachments.erase(InterfaceName);
++    }
++  }
++  // @unreal: END
++
+   if (ModulePrivateLoc.isValid()) {
+     if (isMemberSpecialization)
+       Diag(New->getLocation(), diag::err_module_private_specialization)
+@@ -18663,6 +18690,9 @@ FieldDecl *Sema::CheckFieldDecl(DeclarationName Name, QualType T,
+ 
+   FieldDecl *NewFD = FieldDecl::Create(Context, Record, TSSL, Loc, II, T, TInfo,
+                                        BitWidth, Mutable, InitStyle);
++  // @unreal: BEGIN
++  AddUnrealSpecifiersForDecl(NewFD);
++  // @unreal: END
+   if (InvalidDecl)
+     NewFD->setInvalidDecl();
+ 
+-- 
+2.50.1.windows.1
+

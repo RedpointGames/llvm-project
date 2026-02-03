@@ -1,0 +1,56 @@
+From ba265998994ce38b5eecdd1828d3d4c0e6efcc27 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 16:14:41 +1100
+Subject: [PATCH] [ast-match] Add 'refersToPack' AST matcher
+
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 28 +++++++++++++++++++
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  3 ++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index e69de29bb2d1..ce06bc6f99f7 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -0,0 +1,28 @@
++/// Matches template arguments within a pack template argument; the inner
++/// matcher is compared against each argument of the parameter pack.
++///
++/// Given
++/// \code
++///   template<typename T, typename... Params> class A {};
++///   A<int, double> a;
++///   A<double, int> b;
++/// \endcode
++///
++/// \endcode
++/// classTemplateSpecializationDecl(hasAnyTemplateArgument(
++///     refersToPack(refersToType(asString("double")))))
++///   matches the specialization \c A<int, double>
++///   but does not match the specialization \c A<double, int>
++AST_MATCHER_P(TemplateArgument, refersToPack,
++              internal::Matcher<TemplateArgument>, InnerMatcher) {
++  if (Node.getKind() == TemplateArgument::Pack) {
++    for (const TemplateArgument &Arg : Node.pack_elements()) {
++      BoundNodesTreeBuilder Result(*Builder);
++      if (InnerMatcher.matches(Arg, Finder, &Result)) {
++        *Builder = std::move(Result);
++        return true;
++      }
++    }
++  }
++  return false;
++}
+\ No newline at end of file
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index e69de29bb2d1..0fc4621746cd 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -0,0 +1,3 @@
++// @unreal: BEGIN
++REGISTER_MATCHER(refersToPack);
++// @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+

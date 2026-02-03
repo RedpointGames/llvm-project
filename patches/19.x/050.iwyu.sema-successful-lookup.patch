@@ -1,0 +1,119 @@
+From 35e0cd68c794c27b0c456af0d6b642b3998b916f Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 17:06:33 +1100
+Subject: [PATCH] [iwyu] Add SemaSuccessfulLookup callbacks to PPCallbacks
+
+---
+ clang/include/clang/Lex/PPCallbacks.h | 20 +++++++++++++
+ clang/lib/Sema/SemaLookup.cpp         | 41 +++++++++++++++++++++++++++
+ 2 files changed, 61 insertions(+)
+
+diff --git a/clang/include/clang/Lex/PPCallbacks.h b/clang/include/clang/Lex/PPCallbacks.h
+index 46cc564086f1..4e50beca99d6 100644
+--- a/clang/include/clang/Lex/PPCallbacks.h
++++ b/clang/include/clang/Lex/PPCallbacks.h
+@@ -28,6 +28,9 @@ class MacroDefinition;
+ class MacroDirective;
+ class MacroArgs;
+ struct LexEmbedParametersResult;
++class LookupResult;
++class Scope;
++class DeclContext;
+ 
+ /// This interface provides a way to observe the actions of the
+ /// preprocessor as it does its thing.
+@@ -464,6 +467,12 @@ public:
+   /// \param IfLoc the source location of the \#if/\#ifdef/\#ifndef directive.
+   virtual void Endif(SourceLocation Loc, SourceLocation IfLoc) {
+   }
++
++  // @unreal: BEGIN
++  /// Hook when the semantic system performs a successful lookup.
++  virtual void SemaSuccessfulLookup(LookupResult &R, Scope *S) {}
++  virtual void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) {}
++  // @unreal: END
+ };
+ 
+ /// Simple wrapper class for chaining callbacks.
+@@ -760,6 +769,17 @@ public:
+     First->Endif(Loc, IfLoc);
+     Second->Endif(Loc, IfLoc);
+   }
++
++  // @unreal: BEGIN
++  void SemaSuccessfulLookup(LookupResult &R, Scope *S) override {
++    First->SemaSuccessfulLookup(R, S);
++    Second->SemaSuccessfulLookup(R, S);
++  }
++  void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) override {
++    First->SemaSuccessfulLookup(R, DC);
++    Second->SemaSuccessfulLookup(R, DC);
++  }
++  // @unreal: END
+ };
+ 
+ }  // end namespace clang
+diff --git a/clang/lib/Sema/SemaLookup.cpp b/clang/lib/Sema/SemaLookup.cpp
+index d3d4bf27ae72..11b7a3fc6523 100644
+--- a/clang/lib/Sema/SemaLookup.cpp
++++ b/clang/lib/Sema/SemaLookup.cpp
+@@ -2172,8 +2172,45 @@ bool LookupResult::isAvailableForLookup(Sema &SemaRef, NamedDecl *ND) {
+   return false;
+ }
+ 
++// @unreal: BEGIN
++class UnrealSemaCallbackOnDestruct {
++private:
++  Sema *SemaInsta;
++  LookupResult &R;
++  Scope *S;
++  DeclContext *DC;
++
++public:
++  UnrealSemaCallbackOnDestruct(Sema *InSema, LookupResult &InR, Scope *InS)
++      : SemaInsta(InSema), R(InR), S(InS), DC(nullptr) {}
++  UnrealSemaCallbackOnDestruct(Sema *InSema, LookupResult &InR,
++                               DeclContext *InDC)
++      : SemaInsta(InSema), R(InR), S(nullptr), DC(InDC) {}
++  ~UnrealSemaCallbackOnDestruct() {
++    auto ResultKind = R.getResultKind();
++    if (ResultKind == LookupResult::NotFound ||
++        ResultKind == LookupResult::NotFoundInCurrentInstantiation) {
++      return;
++    }
++    auto *Callbacks = SemaInsta->PP.getPPCallbacks();
++    if (Callbacks == nullptr) {
++      return;
++    }
++    if (S != nullptr) {
++      Callbacks->SemaSuccessfulLookup(R, S);
++    } else {
++      Callbacks->SemaSuccessfulLookup(R, DC);
++    }
++  }
++};
++// @unreal: END
++
+ bool Sema::LookupName(LookupResult &R, Scope *S, bool AllowBuiltinCreation,
+                       bool ForceNoCPlusPlus) {
++  // @unreal: BEGIN
++  UnrealSemaCallbackOnDestruct UnrealSemaCallback(this, R, S);
++  // @unreal: END
++
+   DeclarationName Name = R.getLookupName();
+   if (!Name) return false;
+ 
+@@ -2403,6 +2440,10 @@ bool Sema::LookupQualifiedName(LookupResult &R, DeclContext *LookupCtx,
+           cast<TagDecl>(LookupCtx)->isBeingDefined()) &&
+          "Declaration context must already be complete!");
+ 
++  // @unreal: BEGIN
++  UnrealSemaCallbackOnDestruct UnrealSemaCallback(this, R, LookupCtx);
++  // @unreal: END
++
+   struct QualifiedLookupInScope {
+     bool oldVal;
+     DeclContext *Context;
+-- 
+2.50.1.windows.1
+

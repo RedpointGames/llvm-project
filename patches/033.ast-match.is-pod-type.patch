@@ -1,0 +1,52 @@
+From addf990bb002dec3323a5ad1ba0ac0eb520d1201 Mon Sep 17 00:00:00 2001
+From: June Rhodes <jrhodes@redpoint.games>
+Date: Tue, 3 Feb 2026 16:20:05 +1100
+Subject: [PATCH] [ast-match] Add 'isPODType' AST matcher
+
+---
+ .../clang/ASTMatchers/ASTMatchers.Unreal.h    | 19 ++++++++++++++++++-
+ .../lib/ASTMatchers/Dynamic/Registry.Unreal.h |  1 +
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+index da3aa1ba6259..5dd3eb4a87e1 100644
+--- a/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
++++ b/clang/include/clang/ASTMatchers/ASTMatchers.Unreal.h
+@@ -40,4 +40,21 @@ extern const internal::ArgumentAdaptingMatcherFunc<internal::ForNoneMatcher>
+ /// Usable as: Any Matcher
+ extern const internal::ArgumentAdaptingMatcherFunc<
+     internal::ForNoDescendantMatcher>
+-    forNoDescendant;
+\ No newline at end of file
++    forNoDescendant;
++
++/// Matches if the matched type is a Plain Old Data (POD) type.
++///
++/// Given
++/// \code
++///   class Y
++///   {
++///   public:
++///       int a;
++///       std::string b;
++///   };
++/// \endcode
++/// fieldDecl(hasType(qualType(isPODType())))
++///   matches Y::a
++AST_MATCHER(QualType, isPODType) {
++  return Node.isPODType(Finder->getASTContext());
++}
+diff --git a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+index 272ed1ed0a3a..9641dd17ad02 100644
+--- a/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
++++ b/clang/lib/ASTMatchers/Dynamic/Registry.Unreal.h
+@@ -2,4 +2,5 @@
+ REGISTER_MATCHER(refersToPack);
+ REGISTER_MATCHER(forNone);
+ REGISTER_MATCHER(forNoDescendant);
++REGISTER_MATCHER(isPODType);
+ // @unreal: END
+\ No newline at end of file
+-- 
+2.50.1.windows.1
+
