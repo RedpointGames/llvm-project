@@ -1095,5 +1095,7 @@ const internal::VariadicDynCastAllOfMatcher<OMPClause, OMPDefaultClause>
 const internal::VariadicDynCastAllOfMatcher<Decl, CXXDeductionGuideDecl>
     cxxDeductionGuideDecl;
 
+#include "ASTMatchersInternal.Unreal.h"
+
 } // end namespace ast_matchers
 } // end namespace clang
