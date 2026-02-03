@@ -2172,8 +2172,45 @@ bool LookupResult::isAvailableForLookup(Sema &SemaRef, NamedDecl *ND) {
   return false;
 }
 
+// @unreal: BEGIN
+class UnrealSemaCallbackOnDestruct {
+private:
+  Sema *SemaInsta;
+  LookupResult &R;
+  Scope *S;
+  DeclContext *DC;
+
+public:
+  UnrealSemaCallbackOnDestruct(Sema *InSema, LookupResult &InR, Scope *InS)
+      : SemaInsta(InSema), R(InR), S(InS), DC(nullptr) {}
+  UnrealSemaCallbackOnDestruct(Sema *InSema, LookupResult &InR,
+                               DeclContext *InDC)
+      : SemaInsta(InSema), R(InR), S(nullptr), DC(InDC) {}
+  ~UnrealSemaCallbackOnDestruct() {
+    auto ResultKind = R.getResultKind();
+    if (ResultKind == LookupResult::NotFound ||
+        ResultKind == LookupResult::NotFoundInCurrentInstantiation) {
+      return;
+    }
+    auto *Callbacks = SemaInsta->PP.getPPCallbacks();
+    if (Callbacks == nullptr) {
+      return;
+    }
+    if (S != nullptr) {
+      Callbacks->SemaSuccessfulLookup(R, S);
+    } else {
+      Callbacks->SemaSuccessfulLookup(R, DC);
+    }
+  }
+};
+// @unreal: END
+
 bool Sema::LookupName(LookupResult &R, Scope *S, bool AllowBuiltinCreation,
                       bool ForceNoCPlusPlus) {
+  // @unreal: BEGIN
+  UnrealSemaCallbackOnDestruct UnrealSemaCallback(this, R, S);
+  // @unreal: END
+
   DeclarationName Name = R.getLookupName();
   if (!Name) return false;
 
@@ -2402,6 +2439,10 @@ bool Sema::LookupQualifiedName(LookupResult &R, DeclContext *LookupCtx,
           cast<TagDecl>(LookupCtx)->isCompleteDefinition() ||
           cast<TagDecl>(LookupCtx)->isBeingDefined()) &&
          "Declaration context must already be complete!");
+
+  // @unreal: BEGIN
+  UnrealSemaCallbackOnDestruct UnrealSemaCallback(this, R, LookupCtx);
+  // @unreal: END
 
   struct QualifiedLookupInScope {
     bool oldVal;
