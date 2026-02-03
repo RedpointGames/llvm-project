@@ -1261,6 +1261,10 @@ Windows Support
   to ensure compatibility with msvc. Previously strict aliasing was only disabled if the
   driver mode was cl.
 
+- Clang now defines ``_CRT_USE_BUILTIN_OFFSETOF`` macro in MSVC-compatible mode,
+  which makes ``offsetof`` provided by Microsoft's ``<stddef.h>`` to be defined
+  correctly. (#GH59689)
+
 LoongArch Support
 ^^^^^^^^^^^^^^^^^
 
