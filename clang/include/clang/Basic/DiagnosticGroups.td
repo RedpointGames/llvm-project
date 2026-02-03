@@ -1554,6 +1554,10 @@ def ReadOnlyPlacementChecks : DiagGroup<"read-only-types">;
 def UnsafeBufferUsageInContainer : DiagGroup<"unsafe-buffer-usage-in-container">;
 def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInContainer]>;
 
+// @unreal: BEGIN
+def UnrealEngine : DiagGroup<"unreal-engine">;
+// @unreal: END
+
 // Warnings and notes related to the function effects system underlying
 // the nonblocking and nonallocating attributes.
 def FunctionEffects : DiagGroup<"function-effects">;
