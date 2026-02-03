@@ -111,13 +111,16 @@ jobs:
         path: |
           llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
         key: llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
+    - name: "Rename ZIP file"
+      run: |
+        mv "llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip" "llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
     - name: "Upload LLVM"
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
         if-no-files-found: error
         path: |
-          llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+          llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
 
   llvm-redpoint-windows:
     name: "Build for Windows"
@@ -192,13 +195,17 @@ jobs:
         path: |
           llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
         key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
+    - name: "Rename ZIP file"
+      shell: pwsh
+      run: |
+        Move-Item -Force "llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip" "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
     - name: "Upload LLVM ZIP"
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
         if-no-files-found: error
         path: |
-          llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+          llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
   
   create-release:
     name: "Create Release"
@@ -210,13 +217,21 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
     - name: Download Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
+      with:
+        merge-multiple: true
     - name: Create Info File
       run: |
         echo "linux=llvm-linux-18.x-${{ needs.variables.outputs.hash }}.zip" > info
         echo "win64=llvm-win64-18.x-${{ needs.variables.outputs.hash }}.zip" >> info
         echo "---" >> info
         ls *.zip >> info
+
+        echo "Available ZIP files:"
+        ls *.zip
+
+        echo "All files in current directory:"
+        ls *
     - name: Publish Release
       uses: ncipollo/release-action@v1
       with:
