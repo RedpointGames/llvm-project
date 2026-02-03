@@ -46,6 +46,9 @@
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TemplateKinds.h"
 #include "clang/Basic/TypeTraits.h"
+// @unreal: BEGIN
+#include "clang/Lex/UnrealEngineData.h"
+// @unreal: END
 #include "clang/Sema/AnalysisBasedWarnings.h"
 #include "clang/Sema/Attr.h"
 #include "clang/Sema/CleanupInfo.h"
@@ -1726,6 +1729,20 @@ public:
   // #pragma strict_gs_check.
   PragmaStack<bool> StrictGuardStackCheckStack;
 
+  // @unreal: BEGIN
+  // Unreal stacks.
+  struct UnrealSpecifierSema {
+    tok::TokenKind Kind;
+    clang::UnrealSpecifier SpecData;
+    UnrealSpecifierSema(tok::TokenKind InKind,
+                        const clang::UnrealSpecifier &InSpecData)
+        : Kind(InKind), SpecData(InSpecData){};
+  };
+  std::vector<UnrealSpecifierSema> UnrealStack;
+  std::map<std::string, CXXRecordDecl *>
+      ExpectedIInterfaceToUInterfaceAttachments;
+  // @unreal: END
+
   // This stack tracks the current state of Sema.CurFPFeatures.
   PragmaStack<FPOptionsOverride> FpPragmaStack;
   FPOptionsOverride CurFPFeatureOverrides() {
@@ -1851,6 +1868,11 @@ public:
   /// ActOnPragmaOptionsAlign - Called on well formed \#pragma options align.
   void ActOnPragmaOptionsAlign(PragmaOptionsAlignKind Kind,
                                SourceLocation PragmaLoc);
+
+  // @unreal: BEGIN
+  void ActOnUnrealData(SourceLocation TokenLoc, tok::TokenKind Kind,
+                       const UnrealSpecifier &UnrealData);
+  // @unreal: END
 
   /// ActOnPragmaPack - Called on well formed \#pragma pack(...).
   void ActOnPragmaPack(SourceLocation PragmaLoc, PragmaMsStackAction Action,
@@ -2040,6 +2062,11 @@ public:
 
   /// Called to set exception behavior for floating point operations.
   void setExceptionMode(SourceLocation Loc, LangOptions::FPExceptionModeKind);
+
+  // @unreal: BEGIN
+  /// Called to add specifiers from the Unreal stack.
+  void AddUnrealSpecifiersForDecl(Decl *RD);
+  // @unreal: END
 
   /// PushNamespaceVisibilityAttr - Note that we've entered a
   /// namespace with a visibility attribute.
