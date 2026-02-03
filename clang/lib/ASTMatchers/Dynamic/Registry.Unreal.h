@@ -17,4 +17,5 @@ REGISTER_MATCHER(hasUMetadata);
 REGISTER_MATCHER(hasUMetadataValue);
 REGISTER_MATCHER(withIInterface);
 REGISTER_MATCHER(withUInterface);
+REGISTER_MATCHER(isExpensiveToCopy);
 // @unreal: END
