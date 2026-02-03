@@ -1,53 +1,67 @@
-From df1a5b43985adfdf4e6b6ffc5f5e01341ed408dd Mon Sep 17 00:00:00 2001
+From cb825c65f98106a00f69dcc901fb8ad103dbb169 Mon Sep 17 00:00:00 2001
 From: June Rhodes <jrhodes@redpoint.games>
 Date: Thu, 4 Jul 2024 15:55:55 +1000
-Subject: [PATCH] [core] Build system changes for Clang for Unreal Engine
+Subject: [PATCH] Build system changes for Clang for Unreal Engine
 
 ---
- .ci/generate-buildkite-pipeline-premerge      | 312 -------
- .ci/generate-buildkite-pipeline-scheduled     |  81 --
- .ci/monolithic-linux.sh                       |  57 --
- .ci/monolithic-windows.sh                     |  56 --
- .github/CODEOWNERS                            | 103 ---
- .github/dependabot.yml                        |  18 -
- .github/new-issues-labeler.yml                |  29 -
- .github/new-prs-labeler.yml                   | 838 ------------------
- .github/workflows/README.md                   |   1 -
- .github/workflows/build-ci-container.yml      |  60 --
- .github/workflows/clang-tests.yml             |  38 -
- .../containers/github-action-ci/Dockerfile    |  48 -
- .github/workflows/docs.yml                    | 169 ----
- .github/workflows/issue-release-workflow.yml  |  94 --
- .github/workflows/issue-subscriber.yml        |  37 -
- .github/workflows/libclang-abi-tests.yml      | 168 ----
- .github/workflows/libclang-python-tests.yml   |  47 -
- .github/workflows/libclc-tests.yml            |  39 -
- .github/workflows/libcxx-build-and-test.yaml  | 201 -----
- .../libcxx-check-generated-files.yml          |  24 -
- .github/workflows/lld-tests.yml               |  38 -
- .github/workflows/lldb-tests.yml              |  39 -
- .github/workflows/llvm-bugs.yml               |  63 --
- .github/workflows/llvm-project-tests.yml      | 149 ----
- .github/workflows/llvm-tests.yml              | 192 ----
- .github/workflows/new-issues.yml              |  23 -
- .github/workflows/new-prs.yml                 |  75 --
- .github/workflows/pr-code-format.yml          |  84 --
- .github/workflows/pr-request-release-note.yml |  43 -
- .github/workflows/pr-subscriber.yml           |  34 -
- .github/workflows/release-binaries.yml        | 306 -------
- .github/workflows/release-documentation.yml   |  88 --
- .github/workflows/release-doxygen.yml         |  67 --
- .github/workflows/release-lit.yml             |  74 --
- .github/workflows/release-tasks.yml           |  81 --
- .github/workflows/scorecard.yml               |  62 --
- .../workflows/set-release-binary-outputs.sh   |  34 -
- .github/workflows/spirv-tests.yml             |  29 -
- .github/workflows/version-check.py            |  36 -
- .github/workflows/version-check.yml           |  31 -
- README.md                                     |  44 -
- 41 files changed, 4012 deletions(-)
+ .ci/generate-buildkite-pipeline-premerge      |  312 -----
+ .ci/monolithic-linux.sh                       |  129 ---
+ .ci/monolithic-windows.sh                     |   69 --
+ .github/CODEOWNERS                            |  152 ---
+ .github/dependabot.yml                        |   18 -
+ .github/new-issues-labeler.yml                |   29 -
+ .github/new-prs-labeler.yml                   | 1003 -----------------
+ .github/workflows/README.md                   |    1 -
+ .github/workflows/build-ci-container.yml      |  112 --
+ .../workflows/ci-post-commit-analyzer-run.py  |   34 -
+ .github/workflows/ci-post-commit-analyzer.yml |   95 --
+ .github/workflows/clang-tests.yml             |   38 -
+ .../github-action-ci/bootstrap.patch          |   13 -
+ .../github-action-ci/stage1.Dockerfile        |   44 -
+ .../github-action-ci/stage2.Dockerfile        |   29 -
+ .../containers/github-action-ci/storage.conf  |    4 -
+ .github/workflows/docs.yml                    |  169 ---
+ .github/workflows/email-check.yaml            |   46 -
+ .github/workflows/get-llvm-version/action.yml |   26 -
+ .github/workflows/issue-release-workflow.yml  |   69 --
+ .github/workflows/issue-subscriber.yml        |   37 -
+ .github/workflows/issue-write.yml             |  157 ---
+ .github/workflows/libclang-abi-tests.yml      |  168 ---
+ .github/workflows/libclang-python-tests.yml   |   47 -
+ .github/workflows/libclc-tests.yml            |   39 -
+ .github/workflows/libcxx-build-and-test.yaml  |  234 ----
+ .../libcxx-check-generated-files.yml          |   24 -
+ .../libcxx-restart-preempted-jobs.yaml        |  132 ---
+ .github/workflows/lld-tests.yml               |   38 -
+ .github/workflows/lldb-tests.yml              |   39 -
+ .github/workflows/llvm-bugs.yml               |   63 --
+ .github/workflows/llvm-project-tests.yml      |  154 ---
+ .../workflows/llvm-project-workflow-tests.yml |   32 -
+ .github/workflows/llvm-tests.yml              |  192 ----
+ .github/workflows/merged-prs.yml              |   41 -
+ .github/workflows/new-issues.yml              |   23 -
+ .github/workflows/new-prs.yml                 |   75 --
+ .github/workflows/pr-code-format.yml          |   96 --
+ .github/workflows/pr-request-release-note.yml |   49 -
+ .github/workflows/pr-subscriber.yml           |   34 -
+ .github/workflows/release-binaries-all.yml    |   98 --
+ .../release-binaries-save-stage/action.yml    |   44 -
+ .../release-binaries-setup-stage/action.yml   |   59 -
+ .github/workflows/release-binaries.yml        |  492 --------
+ .github/workflows/release-documentation.yml   |   91 --
+ .github/workflows/release-doxygen.yml         |   72 --
+ .github/workflows/release-lit.yml             |   79 --
+ .github/workflows/release-sources.yml         |  108 --
+ .github/workflows/release-tasks.yml           |  123 --
+ .github/workflows/scorecard.yml               |   62 -
+ .../workflows/set-release-binary-outputs.sh   |   34 -
+ .github/workflows/spirv-tests.yml             |   29 -
+ .../unprivileged-download-artifact/action.yml |   81 --
+ .github/workflows/version-check.py            |   36 -
+ .github/workflows/version-check.yml           |   31 -
+ README.md                                     |   44 -
+ 56 files changed, 5549 deletions(-)
  delete mode 100755 .ci/generate-buildkite-pipeline-premerge
- delete mode 100755 .ci/generate-buildkite-pipeline-scheduled
  delete mode 100755 .ci/monolithic-linux.sh
  delete mode 100755 .ci/monolithic-windows.sh
  delete mode 100644 .github/CODEOWNERS
@@ -56,41 +70,57 @@ Subject: [PATCH] [core] Build system changes for Clang for Unreal Engine
  delete mode 100644 .github/new-prs-labeler.yml
  delete mode 100644 .github/workflows/README.md
  delete mode 100644 .github/workflows/build-ci-container.yml
+ delete mode 100644 .github/workflows/ci-post-commit-analyzer-run.py
+ delete mode 100644 .github/workflows/ci-post-commit-analyzer.yml
  delete mode 100644 .github/workflows/clang-tests.yml
- delete mode 100644 .github/workflows/containers/github-action-ci/Dockerfile
+ delete mode 100644 .github/workflows/containers/github-action-ci/bootstrap.patch
+ delete mode 100644 .github/workflows/containers/github-action-ci/stage1.Dockerfile
+ delete mode 100644 .github/workflows/containers/github-action-ci/stage2.Dockerfile
+ delete mode 100644 .github/workflows/containers/github-action-ci/storage.conf
  delete mode 100644 .github/workflows/docs.yml
+ delete mode 100644 .github/workflows/email-check.yaml
+ delete mode 100644 .github/workflows/get-llvm-version/action.yml
  delete mode 100644 .github/workflows/issue-release-workflow.yml
  delete mode 100644 .github/workflows/issue-subscriber.yml
+ delete mode 100644 .github/workflows/issue-write.yml
  delete mode 100644 .github/workflows/libclang-abi-tests.yml
  delete mode 100644 .github/workflows/libclang-python-tests.yml
  delete mode 100644 .github/workflows/libclc-tests.yml
  delete mode 100644 .github/workflows/libcxx-build-and-test.yaml
  delete mode 100644 .github/workflows/libcxx-check-generated-files.yml
+ delete mode 100644 .github/workflows/libcxx-restart-preempted-jobs.yaml
  delete mode 100644 .github/workflows/lld-tests.yml
  delete mode 100644 .github/workflows/lldb-tests.yml
  delete mode 100644 .github/workflows/llvm-bugs.yml
  delete mode 100644 .github/workflows/llvm-project-tests.yml
+ delete mode 100644 .github/workflows/llvm-project-workflow-tests.yml
  delete mode 100644 .github/workflows/llvm-tests.yml
+ delete mode 100644 .github/workflows/merged-prs.yml
  delete mode 100644 .github/workflows/new-issues.yml
  delete mode 100644 .github/workflows/new-prs.yml
  delete mode 100644 .github/workflows/pr-code-format.yml
  delete mode 100644 .github/workflows/pr-request-release-note.yml
  delete mode 100644 .github/workflows/pr-subscriber.yml
+ delete mode 100644 .github/workflows/release-binaries-all.yml
+ delete mode 100644 .github/workflows/release-binaries-save-stage/action.yml
+ delete mode 100644 .github/workflows/release-binaries-setup-stage/action.yml
  delete mode 100644 .github/workflows/release-binaries.yml
  delete mode 100644 .github/workflows/release-documentation.yml
  delete mode 100644 .github/workflows/release-doxygen.yml
  delete mode 100644 .github/workflows/release-lit.yml
+ delete mode 100644 .github/workflows/release-sources.yml
  delete mode 100644 .github/workflows/release-tasks.yml
  delete mode 100644 .github/workflows/scorecard.yml
  delete mode 100644 .github/workflows/set-release-binary-outputs.sh
  delete mode 100644 .github/workflows/spirv-tests.yml
+ delete mode 100644 .github/workflows/unprivileged-download-artifact/action.yml
  delete mode 100755 .github/workflows/version-check.py
  delete mode 100644 .github/workflows/version-check.yml
  delete mode 100644 README.md
 
 diff --git a/.ci/generate-buildkite-pipeline-premerge b/.ci/generate-buildkite-pipeline-premerge
 deleted file mode 100755
-index 7b1b4b8dac8a..000000000000
+index 98a8b8fff368..000000000000
 --- a/.ci/generate-buildkite-pipeline-premerge
 +++ /dev/null
 @@ -1,312 +0,0 @@
@@ -105,7 +135,7 @@ index 7b1b4b8dac8a..000000000000
 -
 -#
 -# This file generates a Buildkite pipeline that triggers the various CI jobs for
--# the LLVM project during pre-commit CI (each time a Phabricator diff is uploaded).
+-# the LLVM project during pre-commit CI.
 -#
 -# See https://buildkite.com/docs/agent/v3/cli-pipeline#pipeline-format.
 -#
@@ -130,8 +160,6 @@ index 7b1b4b8dac8a..000000000000
 -: ${WINDOWS_AGENTS:='{"queue": "windows"}'}
 -# Filter rules for generic linux tests
 -: ${LINUX_AGENTS:='{"queue": "linux"}'}
--# Service agents, for interacting with Phabricator.
--: ${SERVICE_AGENTS:='{"queue": "service"}'}
 -
 -reviewID="$(git log --format=%B -n 1 | sed -nE 's/^Review-ID:[[:space:]]*(.+)$/\1/p')"
 -if [[ "${reviewID}" != "" ]]; then
@@ -151,6 +179,8 @@ index 7b1b4b8dac8a..000000000000
 -echo "$modified_dirs" >&2
 -
 -function compute-projects-to-test() {
+-  isForWindows=$1
+-  shift
 -  projects=${@}
 -  for project in ${projects}; do
 -    echo "${project}"
@@ -161,12 +191,17 @@ index 7b1b4b8dac8a..000000000000
 -      done
 -    ;;
 -    llvm)
--      for p in bolt clang clang-tools-extra flang lld lldb mlir polly; do
+-      for p in bolt clang clang-tools-extra lld lldb mlir polly; do
 -        echo $p
 -      done
+-      # Flang is not stable in Windows CI at the moment
+-      if [[ $isForWindows == 0 ]]; then
+-        echo flang
+-      fi
 -    ;;
 -    clang)
--      for p in clang-tools-extra compiler-rt flang libc lldb openmp cross-project-tests; do
+-      # lldb is temporarily removed to alleviate Linux pre-commit CI waiting times
+-      for p in clang-tools-extra compiler-rt cross-project-tests; do
 -        echo $p
 -      done
 -    ;;
@@ -174,7 +209,26 @@ index 7b1b4b8dac8a..000000000000
 -      echo libc
 -    ;;
 -    mlir)
--      echo flang
+-      # Flang is not stable in Windows CI at the moment
+-      if [[ $isForWindows == 0 ]]; then
+-        echo flang
+-      fi
+-    ;;
+-    *)
+-      # Nothing to do
+-    ;;
+-    esac
+-  done
+-}
+-
+-function compute-runtimes-to-test() {
+-  projects=${@}
+-  for project in ${projects}; do
+-    case ${project} in
+-    clang)
+-      for p in libcxx libcxxabi libunwind; do
+-        echo $p
+-      done
 -    ;;
 -    *)
 -      # Nothing to do
@@ -189,7 +243,7 @@ index 7b1b4b8dac8a..000000000000
 -    echo "${project}"
 -    case ${project} in
 -    bolt)
--      for p in lld llvm; do
+-      for p in clang lld llvm; do
 -        echo $p
 -      done
 -    ;;
@@ -206,7 +260,7 @@ index 7b1b4b8dac8a..000000000000
 -    compiler-rt|libc|openmp)
 -      echo clang lld
 -    ;;
--    flang|lldb)
+-    flang|lldb|libclc)
 -      for p in llvm clang; do
 -        echo $p
 -      done
@@ -226,7 +280,6 @@ index 7b1b4b8dac8a..000000000000
 -  for project in ${projects}; do
 -    case ${project} in
 -    cross-project-tests) ;; # tests failing
--    lldb)                ;; # tests failing
 -    openmp)              ;; # https://github.com/google/llvm-premerge-checks/issues/410
 -    *)
 -      echo "${project}"
@@ -243,7 +296,7 @@ index 7b1b4b8dac8a..000000000000
 -    compiler-rt)         ;; # tests taking too long
 -    openmp)              ;; # TODO: having trouble with the Perl installation
 -    libc)                ;; # no Windows support
--    lldb)                ;; # tests failing
+-    lldb)                ;; # custom environment requirements (https://github.com/llvm/llvm-project/pull/94208#issuecomment-2146256857)
 -    bolt)                ;; # tests are not supported yet
 -    *)
 -      echo "${project}"
@@ -276,8 +329,17 @@ index 7b1b4b8dac8a..000000000000
 -    cross-project-tests)
 -      echo "check-cross-project"
 -    ;;
+-    libcxx)
+-      echo "check-cxx"
+-    ;;
+-    libcxxabi)
+-      echo "check-cxxabi"
+-    ;;
+-    libunwind)
+-      echo "check-unwind"
+-    ;;
 -    lldb)
--      echo "check-all" # TODO: check-lldb may not include all the LLDB tests?
+-      echo "check-lldb"
 -    ;;
 -    pstl)
 -      echo "check-all"
@@ -305,31 +367,24 @@ index 7b1b4b8dac8a..000000000000
 -EOF
 -fi
 -
--# If clang changed.
--if echo "$modified_dirs" | grep -q -E "^(clang)$"; then
--  cat <<EOF
--- trigger: "clang-ci"
--  build:
--    message: "${buildMessage}"
--    commit: "${BUILDKITE_COMMIT}"
--    branch: "${BUILDKITE_BRANCH}"
--EOF
--fi
--
 -# Generic pipeline for projects that have not defined custom steps.
 -#
 -# Individual projects should instead define the pre-commit CI tests that suits their
 -# needs while letting them run on the infrastructure provided by LLVM.
 -
 -# Figure out which projects need to be built on each platform
--all_projects="bolt clang-tools-extra compiler-rt cross-project-tests flang libc libclc lld lldb llvm mlir openmp polly pstl"
+-all_projects="bolt clang clang-tools-extra compiler-rt cross-project-tests flang libc libclc lld lldb llvm mlir openmp polly pstl"
 -modified_projects="$(keep-modified-projects ${all_projects})"
 -
--linux_projects_to_test=$(exclude-linux $(compute-projects-to-test ${modified_projects}))
+-linux_projects_to_test=$(exclude-linux $(compute-projects-to-test 0 ${modified_projects}))
 -linux_check_targets=$(check-targets ${linux_projects_to_test} | sort | uniq)
 -linux_projects=$(add-dependencies ${linux_projects_to_test} | sort | uniq)
 -
--windows_projects_to_test=$(exclude-windows $(compute-projects-to-test ${modified_projects}))
+-linux_runtimes_to_test=$(compute-runtimes-to-test ${linux_projects_to_test})
+-linux_runtime_check_targets=$(check-targets ${linux_runtimes_to_test} | sort | uniq)
+-linux_runtimes=$(echo ${linux_runtimes_to_test} | sort | uniq)
+-
+-windows_projects_to_test=$(exclude-windows $(compute-projects-to-test 1 ${modified_projects}))
 -windows_check_targets=$(check-targets ${windows_projects_to_test} | sort | uniq)
 -windows_projects=$(add-dependencies ${windows_projects_to_test} | sort | uniq)
 -
@@ -353,7 +408,7 @@ index 7b1b4b8dac8a..000000000000
 -    CC: 'clang'
 -    CXX: 'clang++'
 -  commands:
--  - './.ci/monolithic-linux.sh "$(echo ${linux_projects} | tr ' ' ';')" "$(echo ${linux_check_targets})"'
+-  - './.ci/monolithic-linux.sh "$(echo ${linux_projects} | tr ' ' ';')" "$(echo ${linux_check_targets})" "$(echo ${linux_runtimes} | tr ' ' ';')" "$(echo ${linux_runtime_check_targets})"'
 -EOF
 -fi
 -
@@ -381,124 +436,12 @@ index 7b1b4b8dac8a..000000000000
 -  - 'bash .ci/monolithic-windows.sh "$(echo ${windows_projects} | tr ' ' ';')" "$(echo ${windows_check_targets})"'
 -EOF
 -fi
--
--# If build was triggered from a Phabricator review - send an update back.
--if [[ -n "${ph_target_phid:-}" ]]; then
--  cat << EOF
--- continue_on_failure: true
--  wait: '~'
--- label: ':phabricator: update build status on Phabricator'
--  agents: ${SERVICE_AGENTS}
--  artifact_paths:
--  - 'artifacts/**/*'
--  commands:
--  - export SRC=\$\${BUILDKITE_BUILD_PATH}/llvm-premerge-checks
--  - rm -rf \$\${SRC}
--  - git clone --depth 1 https://github.com/google/llvm-premerge-checks.git "\$\${SRC}"
--  - cd \$\${SRC}
--  - git fetch origin "main":x
--  - git checkout x
--  - echo "llvm-premerge-checks commit"
--  - git rev-parse HEAD
--  - pip install -q -r \$\${SRC}/scripts/requirements.txt
--  - cd "\$\$BUILDKITE_BUILD_CHECKOUT_PATH"
--  - \$\${SRC}/scripts/summary.py
--  timeout_in_minutes: 10
--EOF
--fi
-diff --git a/.ci/generate-buildkite-pipeline-scheduled b/.ci/generate-buildkite-pipeline-scheduled
-deleted file mode 100755
-index d5c7c5965ef6..000000000000
---- a/.ci/generate-buildkite-pipeline-scheduled
-+++ /dev/null
-@@ -1,81 +0,0 @@
--#!/usr/bin/env bash
--#===----------------------------------------------------------------------===##
--#
--# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
--# See https://llvm.org/LICENSE.txt for license information.
--# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
--#
--#===----------------------------------------------------------------------===##
--
--#
--# This file generates a Buildkite pipeline that triggers the various CI jobs for
--# the LLVM project on scheduled builds.
--#
--# See https://buildkite.com/docs/agent/v3/cli-pipeline#pipeline-format.
--#
--
--set -eu
--set -o pipefail
--
--# Filter rules for generic windows tests
--: ${WINDOWS_AGENTS:='{"queue": "windows"}'}
--# Filter rules for generic linux tests
--: ${LINUX_AGENTS:='{"queue": "linux"}'}
--# Set by buildkite
--: ${BUILDKITE_MESSAGE:=}
--: ${BUILDKITE_COMMIT:=}
--: ${BUILDKITE_BRANCH:=}
--
--cat <<EOF
--steps:
--  - trigger: "libcxx-ci"
--    build:
--      message: "${BUILDKITE_MESSAGE}"
--      commit: "${BUILDKITE_COMMIT}"
--      branch: "${BUILDKITE_BRANCH}"
--
--  - trigger: "clang-ci"
--    build:
--      message: "${BUILDKITE_MESSAGE}"
--      commit: "${BUILDKITE_COMMIT}"
--      branch: "${BUILDKITE_BRANCH}"
--
--  - label: ':linux: Linux x64'
--    artifact_paths:
--    - 'artifacts/**/*'
--    - '*_result.json'
--    - 'build/test-results.xml'
--    agents: ${LINUX_AGENTS}
--    retry:
--      automatic:
--        - exit_status: -1  # Agent was lost
--          limit: 2
--        - exit_status: 255 # Forced agent shutdown
--          limit: 2
--    timeout_in_minutes: 120
--    env:
--      CC: 'clang'
--      CXX: 'clang++'
--    commands:
--    - ./.ci/monolithic-linux.sh "bolt;clang;clang-tools-extra;compiler-rt;flang;libc;libclc;lld;llvm;mlir;polly;pstl" "check-all"
--
--  - label: ':windows: Windows x64'
--    artifact_paths:
--    - 'artifacts/**/*'
--    - '*_result.json'
--    - 'build/test-results.xml'
--    agents: ${WINDOWS_AGENTS}
--    retry:
--      automatic:
--        - exit_status: -1  # Agent was lost
--          limit: 2
--        - exit_status: 255 # Forced agent shutdown
--          limit: 2
--    timeout_in_minutes: 150
--    env:
--      CC: 'cl'
--      CXX: 'cl'
--      LD: 'link'
--    commands:
--    - C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
--    - bash .ci/monolithic-windows.sh "clang;clang-tools-extra;flang;libclc;lld;llvm;mlir;polly;pstl" "check-all"
 diff --git a/.ci/monolithic-linux.sh b/.ci/monolithic-linux.sh
 deleted file mode 100755
-index 1e7b2d2a36c2..000000000000
+index b78dc59432b6..000000000000
 --- a/.ci/monolithic-linux.sh
 +++ /dev/null
-@@ -1,57 +0,0 @@
+@@ -1,129 +0,0 @@
 -#!/usr/bin/env bash
 -#===----------------------------------------------------------------------===##
 -#
@@ -519,7 +462,8 @@ index 1e7b2d2a36c2..000000000000
 -
 -MONOREPO_ROOT="${MONOREPO_ROOT:="$(git rev-parse --show-toplevel)"}"
 -BUILD_DIR="${BUILD_DIR:=${MONOREPO_ROOT}/build}"
--rm -rf ${BUILD_DIR}
+-INSTALL_DIR="${BUILD_DIR}/install"
+-rm -rf "${BUILD_DIR}"
 -
 -ccache --zero-stats
 -
@@ -538,8 +482,9 @@ index 1e7b2d2a36c2..000000000000
 -targets="${2}"
 -
 -echo "--- cmake"
--pip install -q -r ${MONOREPO_ROOT}/mlir/python/requirements.txt
--cmake -S ${MONOREPO_ROOT}/llvm -B ${BUILD_DIR} \
+-pip install -q -r "${MONOREPO_ROOT}"/mlir/python/requirements.txt
+-pip install -q -r "${MONOREPO_ROOT}"/lldb/test/requirements.txt
+-cmake -S "${MONOREPO_ROOT}"/llvm -B "${BUILD_DIR}" \
 -      -D LLVM_ENABLE_PROJECTS="${projects}" \
 -      -G Ninja \
 -      -D CMAKE_BUILD_TYPE=Release \
@@ -549,19 +494,89 @@ index 1e7b2d2a36c2..000000000000
 -      -D LLVM_LIT_ARGS="-v --xunit-xml-output ${BUILD_DIR}/test-results.xml --timeout=1200 --time-tests" \
 -      -D LLVM_ENABLE_LLD=ON \
 -      -D CMAKE_CXX_FLAGS=-gmlt \
--      -D BOLT_CLANG_EXE=/usr/bin/clang \
 -      -D LLVM_CCACHE_BUILD=ON \
--      -D MLIR_ENABLE_BINDINGS_PYTHON=ON
+-      -D MLIR_ENABLE_BINDINGS_PYTHON=ON \
+-      -D CMAKE_INSTALL_PREFIX="${INSTALL_DIR}"
 -
 -echo "--- ninja"
 -# Targets are not escaped as they are passed as separate arguments.
--ninja -C "${BUILD_DIR}" ${targets}
+-ninja -C "${BUILD_DIR}" -k 0 ${targets}
+-
+-runtimes="${3}"
+-runtime_targets="${4}"
+-
+-# Compiling runtimes with just-built Clang and running their tests
+-# as an additional testing for Clang.
+-if [[ "${runtimes}" != "" ]]; then
+-  if [[ "${runtime_targets}" == "" ]]; then
+-    echo "Runtimes to build are specified, but targets are not."
+-    exit 1
+-  fi
+-
+-  echo "--- ninja install-clang"
+-
+-  ninja -C ${BUILD_DIR} install-clang install-clang-resource-headers
+-
+-  RUNTIMES_BUILD_DIR="${MONOREPO_ROOT}/build-runtimes"
+-  INSTALL_DIR="${BUILD_DIR}/install"
+-  mkdir -p ${RUNTIMES_BUILD_DIR}
+-
+-  echo "--- cmake runtimes C++03"
+-
+-  cmake -S "${MONOREPO_ROOT}/runtimes" -B "${RUNTIMES_BUILD_DIR}" -GNinja \
+-      -D CMAKE_C_COMPILER="${INSTALL_DIR}/bin/clang" \
+-      -D CMAKE_CXX_COMPILER="${INSTALL_DIR}/bin/clang++" \
+-      -D LLVM_ENABLE_RUNTIMES="${runtimes}" \
+-      -D LIBCXX_CXX_ABI=libcxxabi \
+-      -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+-      -D CMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
+-      -D LIBCXX_TEST_PARAMS="std=c++03" \
+-      -D LIBCXXABI_TEST_PARAMS="std=c++03"
+-
+-  echo "--- ninja runtimes C++03"
+-
+-  ninja -vC "${RUNTIMES_BUILD_DIR}" ${runtime_targets}
+-
+-  echo "--- cmake runtimes C++26"
+-
+-  rm -rf "${RUNTIMES_BUILD_DIR}"
+-  cmake -S "${MONOREPO_ROOT}/runtimes" -B "${RUNTIMES_BUILD_DIR}" -GNinja \
+-      -D CMAKE_C_COMPILER="${INSTALL_DIR}/bin/clang" \
+-      -D CMAKE_CXX_COMPILER="${INSTALL_DIR}/bin/clang++" \
+-      -D LLVM_ENABLE_RUNTIMES="${runtimes}" \
+-      -D LIBCXX_CXX_ABI=libcxxabi \
+-      -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+-      -D CMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
+-      -D LIBCXX_TEST_PARAMS="std=c++26" \
+-      -D LIBCXXABI_TEST_PARAMS="std=c++26"
+-
+-  echo "--- ninja runtimes C++26"
+-
+-  ninja -vC "${RUNTIMES_BUILD_DIR}" ${runtime_targets}
+-
+-  echo "--- cmake runtimes clang modules"
+-
+-  rm -rf "${RUNTIMES_BUILD_DIR}"
+-  cmake -S "${MONOREPO_ROOT}/runtimes" -B "${RUNTIMES_BUILD_DIR}" -GNinja \
+-      -D CMAKE_C_COMPILER="${INSTALL_DIR}/bin/clang" \
+-      -D CMAKE_CXX_COMPILER="${INSTALL_DIR}/bin/clang++" \
+-      -D LLVM_ENABLE_RUNTIMES="${runtimes}" \
+-      -D LIBCXX_CXX_ABI=libcxxabi \
+-      -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+-      -D CMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
+-      -D LIBCXX_TEST_PARAMS="enable_modules=clang" \
+-      -D LIBCXXABI_TEST_PARAMS="enable_modules=clang"
+-
+-  echo "--- ninja runtimes clang modules"
+-  
+-  ninja -vC "${RUNTIMES_BUILD_DIR}" ${runtime_targets}
+-fi
 diff --git a/.ci/monolithic-windows.sh b/.ci/monolithic-windows.sh
 deleted file mode 100755
-index a704e855f011..000000000000
+index 91e719c52d43..000000000000
 --- a/.ci/monolithic-windows.sh
 +++ /dev/null
-@@ -1,56 +0,0 @@
+@@ -1,69 +0,0 @@
 -#!/usr/bin/env bash
 -#===----------------------------------------------------------------------===##
 -#
@@ -583,7 +598,7 @@ index a704e855f011..000000000000
 -MONOREPO_ROOT="${MONOREPO_ROOT:="$(git rev-parse --show-toplevel)"}"
 -BUILD_DIR="${BUILD_DIR:=${MONOREPO_ROOT}/build}"
 -
--rm -rf ${BUILD_DIR}
+-rm -rf "${BUILD_DIR}"
 -
 -if [[ -n "${CLEAR_CACHE:-}" ]]; then
 -  echo "clearing sccache"
@@ -601,8 +616,16 @@ index a704e855f011..000000000000
 -targets="${2}"
 -
 -echo "--- cmake"
--pip install -q -r ${MONOREPO_ROOT}/mlir/python/requirements.txt
--cmake -S ${MONOREPO_ROOT}/llvm -B ${BUILD_DIR} \
+-pip install -q -r "${MONOREPO_ROOT}"/mlir/python/requirements.txt
+-
+-# The CMAKE_*_LINKER_FLAGS to disable the manifest come from research
+-# on fixing a build reliability issue on the build server, please
+-# see https://github.com/llvm/llvm-project/pull/82393 and
+-# https://discourse.llvm.org/t/rfc-future-of-windows-pre-commit-ci/76840/40
+-# for further information.
+-# We limit the number of parallel compile jobs to 24 control memory
+-# consumption and improve build reliability.
+-cmake -S "${MONOREPO_ROOT}"/llvm -B "${BUILD_DIR}" \
 -      -D LLVM_ENABLE_PROJECTS="${projects}" \
 -      -G Ninja \
 -      -D CMAKE_BUILD_TYPE=Release \
@@ -613,17 +636,22 @@ index a704e855f011..000000000000
 -      -D COMPILER_RT_BUILD_ORC=OFF \
 -      -D CMAKE_C_COMPILER_LAUNCHER=sccache \
 -      -D CMAKE_CXX_COMPILER_LAUNCHER=sccache \
--      -D MLIR_ENABLE_BINDINGS_PYTHON=ON
+-      -D MLIR_ENABLE_BINDINGS_PYTHON=ON \
+-      -D CMAKE_EXE_LINKER_FLAGS="/MANIFEST:NO" \
+-      -D CMAKE_MODULE_LINKER_FLAGS="/MANIFEST:NO" \
+-      -D CMAKE_SHARED_LINKER_FLAGS="/MANIFEST:NO" \
+-      -D LLVM_PARALLEL_COMPILE_JOBS=16 \
+-      -D LLVM_PARALLEL_LINK_JOBS=4
 -
 -echo "--- ninja"
 -# Targets are not escaped as they are passed as separate arguments.
--ninja -C "${BUILD_DIR}" ${targets}
+-ninja -C "${BUILD_DIR}" -k 0 ${targets}
 diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
 deleted file mode 100644
-index 3c67a45bbcf7..000000000000
+index 02303c5e6cc5..000000000000
 --- a/.github/CODEOWNERS
 +++ /dev/null
-@@ -1,103 +0,0 @@
+@@ -1,152 +0,0 @@
 -# This file lists reviewers that are auto-assigned when a pull request modifies
 -# certain files or directories. If you add yourself to this file, you commit to
 -# reviewing a large fraction of pull requests in the relevant area.
@@ -649,13 +677,22 @@ index 3c67a45bbcf7..000000000000
 -/llvm/lib/Analysis/ScalarEvolution.cpp @nikic
 -/llvm/lib/Analysis/ValueTracking.cpp @nikic
 -/llvm/lib/IR/ConstantRange.cpp @nikic
+-/llvm/lib/IR/Core.cpp @nikic
 -/llvm/lib/Transforms/Scalar/CorrelatedValuePropagation.cpp @nikic
 -/llvm/lib/Transforms/Scalar/MemCpyOptimizer.cpp @nikic
 -/llvm/lib/Transforms/InstCombine/ @nikic
 -
+-/clang/include/clang/Sema/Sema.h @Endilll
 -/clang/test/CXX/drs/ @Endilll
 -/clang/www/cxx_dr_status.html @Endilll
 -/clang/www/make_cxx_dr_status @Endilll
+-
+-clang/lib/AST/Interp/ @tbaederr
+-clang/test/AST/Interp/ @tbaederr
+-
+-/clang/include/clang/CIR @lanza @bcardosolopes
+-/clang/lib/CIR @lanza @bcardosolopes
+-/clang/tools/cir-* @lanza @bcardosolopes
 -
 -/lldb/ @JDevlieghere
 -
@@ -681,14 +718,14 @@ index 3c67a45bbcf7..000000000000
 -/mlir/Dialect/*/Transforms/Bufferize.cpp @matthias-springer
 -
 -# Linalg Dialect in MLIR.
--/mlir/include/mlir/Dialect/Linalg @dcaballe @nicolasvasilache
--/mlir/lib/Dialect/Linalg @dcaballe @nicolasvasilache
+-/mlir/include/mlir/Dialect/Linalg @dcaballe @nicolasvasilache @rengolin
+-/mlir/lib/Dialect/Linalg @dcaballe @nicolasvasilache @rengolin
 -/mlir/lib/Dialect/Linalg/Transforms/DecomposeLinalgOps.cpp @MaheshRavishankar @nicolasvasilache
--/mlir/lib/Dialect/Linalg/Transforms/DropUnitDims.cpp @MaheshRavishankar @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/DropUnitDims.cpp @dcaballe @MaheshRavishankar @nicolasvasilache
 -/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp @MaheshRavishankar @nicolasvasilache
 -/mlir/lib/Dialect/Linalg/Transforms/DataLayoutPropagation.cpp @hanhanW @nicolasvasilache
--/mlir/lib/Dialect/Linalg/Transforms/Transforms.cpp @hanhanW @nicolasvasilache
--/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp @hanhanW @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/Transforms.cpp @dcaballe @hanhanW @nicolasvasilache
+-/mlir/lib/Dialect/Linalg/Transforms/Vectorization.cpp @banach-space @dcaballe @hanhanW @nicolasvasilache
 -
 -# MemRef Dialect in MLIR.
 -/mlir/lib/Dialect/MemRef/Transforms/EmulateNarrowType.cpp @MaheshRavishankar @nicolasvasilache
@@ -699,14 +736,15 @@ index 3c67a45bbcf7..000000000000
 -/mlir/**/*SME* @banach-space @dcaballe @nicolasvasilache
 -/mlir/**/*SVE* @banach-space @dcaballe @nicolasvasilache
 -/mlir/**/*VectorInterfaces* @dcaballe @nicolasvasilache
--/mlir/**/*VectorToSCF* @banach-space @dcaballe @nicolasvasilache @matthias-springer
+-/mlir/**/*VectorToSCF* @banach-space @dcaballe @matthias-springer @nicolasvasilache
 -/mlir/**/*VectorToLLVM* @banach-space @dcaballe @nicolasvasilache
 -/mlir/**/*X86Vector* @aartbik @dcaballe @nicolasvasilache
--/mlir/include/mlir/Dialect/Vector @dcaballe @nicolasvasilache
--/mlir/lib/Dialect/Vector @dcaballe @nicolasvasilache
--/mlir/lib/Dialect/Vector/Transforms/VectorEmulateNarrowType.cpp @MaheshRavishankar @nicolasvasilache
--/mlir/**/*EmulateNarrowType* @hanhanW
--/mlir/lib/Dialect/Vector/Transforms/* @hanhanW @nicolasvasilache
+-/mlir/include/mlir/Dialect/Vector @banach-space @dcaballe @nicolasvasilache
+-/mlir/include/mlir/Dialect/Vector/IR @kuhar
+-/mlir/lib/Dialect/Vector @banach-space @dcaballe @nicolasvasilache
+-/mlir/lib/Dialect/Vector/Transforms/* @banach-space @dcaballe @hanhanW @nicolasvasilache
+-/mlir/lib/Dialect/Vector/Transforms/VectorEmulateNarrowType.cpp @banach-space @dcaballe @MaheshRavishankar @nicolasvasilache
+-/mlir/**/*EmulateNarrowType* @dcaballe @hanhanW
 -
 -# Presburger library in MLIR
 -/mlir/**/*Presburger* @Groverkss @Superty
@@ -718,6 +756,7 @@ index 3c67a45bbcf7..000000000000
 -# Transform Dialect in MLIR.
 -/mlir/include/mlir/Dialect/Transform/* @ftynse @nicolasvasilache
 -/mlir/lib/Dialect/Transform/* @ftynse @nicolasvasilache
+-/mlir/**/*TransformOps* @ftynse @nicolasvasilache
 -
 -# SPIR-V Dialect in MLIR.
 -/mlir/**/SPIRV/ @antiagainst @kuhar
@@ -727,6 +766,44 @@ index 3c67a45bbcf7..000000000000
 -
 -# MLIR Sparsifier.
 -/mlir/**/*SparseTensor*/ @aartbik @PeimingLiu @yinying-lisa-li @matthias-springer
+-
+-# MLIR NVGPU Dialect
+-/mlir/**/NVGPU*/ @grypp
+-/mlir/test/**/CUDA/ @grypp
+-
+-# MLIR NVVM Dialect in MLIR
+-/mlir/**/LLVMIR/**/BasicPtxBuilderInterface* @grypp
+-/mlir/**/NVVM* @grypp
+-
+-# MLIR Index Dialect
+-/mlir/**/Index* @mogball
+-
+-# MLIR Python Bindings
+-/mlir/test/python/ @ftynse @makslevental @stellaraccident
+-/mlir/python/ @ftynse @makslevental @stellaraccident
+-
+-# MLIR Mem2Reg/SROA
+-/mlir/**/Transforms/Mem2Reg.* @moxinilian
+-/mlir/**/Transforms/SROA.* @moxinilian
+-
+-# BOLT
+-/bolt/ @aaupov @maksfb @rafaelauler @ayermolo @dcci
+-
+-# Bazel build system.
+-/utils/bazel/ @rupprecht @keith
+-
+-# InstallAPI and TextAPI
+-/llvm/**/TextAPI/ @cyndyishida
+-/clang/**/InstallAPI/ @cyndyishida
+-/clang/tools/clang-installapi/ @cyndyishida
+-
+-# ExtractAPI
+-/clang/**/ExtractAPI @daniel-grumberg
+-
+-# DWARFLinker, dwarfutil, dsymutil
+-/llvm/**/DWARFLinker/ @JDevlieghere
+-/llvm/**/dsymutil/ @JDevlieghere
+-/llvm/**/llvm-dwarfutil/ @JDevlieghere
 diff --git a/.github/dependabot.yml b/.github/dependabot.yml
 deleted file mode 100644
 index 8c1dfd39b82c..000000000000
@@ -788,10 +865,19 @@ index a5933d7fc9b3..000000000000
 -  - '/\bbolt(?!\-)\b/i'
 diff --git a/.github/new-prs-labeler.yml b/.github/new-prs-labeler.yml
 deleted file mode 100644
-index b42bcb1887fb..000000000000
+index f79d1a9d2458..000000000000
 --- a/.github/new-prs-labeler.yml
 +++ /dev/null
-@@ -1,838 +0,0 @@
+@@ -1,1003 +0,0 @@
+-BOLT:
+-  - bolt/**/*
+-
+-ClangIR:
+-  - clang/include/clang/CIR/**/*
+-  - clang/lib/CIR/**/*
+-  - clang/tools/cir-*/**/*
+-  - clang/test/CIR/**/*
+-
 -clang:dataflow:
 -  - clang/include/clang/Analysis/FlowSensitive/**/*
 -  - clang/lib/Analysis/FlowSensitive/**/*
@@ -839,6 +925,9 @@ index b42bcb1887fb..000000000000
 -  - llvm/utils/lit/**/*
 -
 -PGO:
+-  - llvm/**/ProfileData/**/*
+-  - llvm/**/SampleProfile*
+-  - llvm/**/CodeGen/MIRSampleProfile*
 -  - llvm/lib/Transforms/Instrumentation/CGProfile.cpp
 -  - llvm/lib/Transforms/Instrumentation/ControlHeightReduction.cpp
 -  - llvm/lib/Transforms/Instrumentation/IndirectCallPromotion.cpp
@@ -847,9 +936,9 @@ index b42bcb1887fb..000000000000
 -  - llvm/lib/Transforms/Instrumentation/ValueProfile*
 -  - llvm/test/Instrumentation/InstrProfiling/**/*
 -  - llvm/test/Transforms/PGOProfile/**/*
+-  - llvm/test/Transforms/SampleProfile/**/*
 -  - llvm/**/llvm-profdata/**/*
 -  - llvm/**/llvm-profgen/**/*
--  - llvm/unittests/ProfileData/**/*
 -
 -vectorization:
 -  - llvm/lib/Transforms/Vectorize/**/*
@@ -869,12 +958,49 @@ index b42bcb1887fb..000000000000
 -clang:driver:
 -  - clang/*/Driver/**
 -
+-compiler-rt:asan:
+-  - compiler-rt/lib/asan/**
+-  - compiler-rt/include/sanitizer/asan_interface.h
+-  - compiler-rt/test/asan/**
+-  - compiler-rt/lib/asan_abi/**
+-  - compiler-rt/test/asan_abi/**
+-
+-compiler-rt:builtins:
+-  - compiler-rt/lib/builtins/**
+-  - compiler-rt/test/builtins/**
+-
+-compiler-rt:cfi:
+-  - compiler-rt/lib/cfi/**
+-  - compiler-rt/test/cfi/**
+-
+-compiler-rt:fuzzer:
+-  - compiler-rt/lib/fuzzer/**
+-  - compiler-rt/include/fuzzer/**
+-  - compiler-rt/test/fuzzer/**
+-
+-compiler-rt:hwasan:
+-  - compiler-rt/lib/hwasan/**
+-  - compiler-rt/include/sanitizer/hwasan_interface.h
+-  - compiler-rt/test/hwasan/**
+-
+-compiler-rt:lsan:
+-  - compiler-rt/lib/lsan/**
+-  - compiler-rt/include/sanitizer/lsan_interface.h
+-  - compiler-rt/test/lsan/**
+-
+-compiler-rt:msan:
+-  - compiler-rt/lib/msan/**
+-  - compiler-rt/include/sanitizer/msan_interface.h
+-  - compiler-rt/test/msan/**
+-
 -compiler-rt:sanitizer:
 -  - llvm/lib/Transforms/Instrumentation/*Sanitizer*
 -  - compiler-rt/lib/interception/**
 -  - compiler-rt/lib/*san*/**
+-  - compiler-rt/include/sanitizer/**
 -  - compiler-rt/test/*san*/**
 -  - compiler-rt/lib/fuzzer/**
+-  - compiler-rt/include/fuzzer/**
 -  - compiler-rt/test/fuzzer/**
 -  - compiler-rt/lib/scudo/**
 -  - compiler-rt/test/scudo/**
@@ -882,6 +1008,19 @@ index b42bcb1887fb..000000000000
 -compiler-rt:scudo:
 -  - compiler-rt/lib/scudo/**
 -  - compiler-rt/test/scudo/**
+-
+-compiler-rt:tsan:
+-  - compiler-rt/lib/tsan/**
+-  - compiler-rt/include/sanitizer/tsan_interface.h
+-  - compiler-rt/include/sanitizer/tsan_interface_atomic.h
+-  - compiler-rt/test/tsan/**
+-
+-compiler-rt:ubsan:
+-  - compiler-rt/lib/ubsan/**
+-  - compiler-rt/include/sanitizer/ubsan_interface.h
+-  - compiler-rt/test/ubsan/**
+-  - compiler-rt/lib/ubsan_minimal/**
+-  - compiler-rt/test/ubsan_minimal/**
 -
 -xray:
 -  - llvm/tools/llvm-xray/**
@@ -974,7 +1113,7 @@ index b42bcb1887fb..000000000000
 -  - mlir/**/DLTI/**
 -
 -mlir:emitc:
--  - mlir/**/EmitC/**
+-  - mlir/**/*EmitC*/**
 -  - mlir/lib/Target/Cpp/**
 -
 -mlir:func:
@@ -1041,7 +1180,7 @@ index b42bcb1887fb..000000000000
 -  - mlir/**/Tensor/**
 -
 -mlir:tosa:
--  - mlir/**/Tosa/**
+-  - mlir/**/*Tosa*/**
 -
 -mlir:ub:
 -  - mlir/**/UB/**
@@ -1205,6 +1344,7 @@ index b42bcb1887fb..000000000000
 -
 -libc++:
 -  - libcxx/**
+-  - .github/workflows/libcxx-*
 -
 -libc++abi:
 -  - libcxxabi/**
@@ -1373,6 +1513,8 @@ index b42bcb1887fb..000000000000
 -  - '**/*DirectX*/**'
 -  - '**/*DXIL*/**'
 -  - '**/*dxil*/**'
+-  - '**/*DXContainer*'
+-  - '**/*DXContainer*/**'
 -
 -backend:SPIR-V:
 -  - clang/lib/Driver/ToolChains/SPIRV.*
@@ -1446,6 +1588,16 @@ index b42bcb1887fb..000000000000
 -  - '**/*amdgpu*/**'
 -  - '**/*AMDGPU*/**'
 -
+-backend:NVPTX:
+-  - 'llvm/**/*nvvm*'
+-  - 'llvm/**/*NVVM*'
+-  - 'llvm/**/*nvptx*'
+-  - 'llvm/**/*NVPTX*'
+-  - 'llvm/**/*nvvm*/**'
+-  - 'llvm/**/*NVVM*/**'
+-  - 'llvm/**/*nvptx*/**'
+-  - 'llvm/**/*NVPTX*/**'
+-
 -backend:RISC-V:
 -  - clang/**/*riscv*
 -  - clang/**/*RISCV*
@@ -1478,6 +1630,8 @@ index b42bcb1887fb..000000000000
 -  - clang/lib/CodeGen/Targets/ARM.cpp
 -  - clang/include/clang/Basic/BuiltinsARM*
 -  - llvm/test/MC/DisasemblerARM/**
+-  - clang/include/clang/Sema/SemaARM.h
+-  - clang/lib/Sema/SemaARM.cpp
 -
 -backend:AArch64:
 -  - llvm/include/llvm/IR/IntrinsicsAArch64.td
@@ -1489,6 +1643,31 @@ index b42bcb1887fb..000000000000
 -  - clang/lib/CodeGen/Targets/AArch64.cpp
 -  - clang/include/clang/Basic/BuiltinsAArch64*
 -  - llvm/test/MC/Disassembler/AArch64/**
+-  - clang/include/clang/Sema/SemaARM.h
+-  - clang/lib/Sema/SemaARM.cpp
+-
+-backend:Hexagon:
+-  - clang/include/clang/Basic/BuiltinsHexagon*.def
+-  - clang/include/clang/Sema/SemaHexagon.h
+-  - clang/lib/Basic/Targets/Hexagon.*
+-  - clang/lib/CodeGen/Targets/Hexagon.cpp
+-  - clang/lib/Driver/ToolChains/Hexagon.*
+-  - clang/lib/Sema/SemaHexagon.cpp
+-  - lld/ELF/Arch/Hexagon.cpp
+-  - lldb/source/Plugins/ABI/Hexagon/**
+-  - lldb/source/Plugins/DynamicLoader/Hexagon-DYLD/**
+-  - llvm/include/llvm/BinaryFormat/ELFRelocs/Hexagon.def
+-  - llvm/include/llvm/IR/IntrinsicsHexagon*
+-  - llvm/include/llvm/Support/Hexagon*
+-  - llvm/lib/Support/Hexagon*
+-  - llvm/lib/Target/Hexagon/**
+-  - llvm/test/CodeGen/Hexagon/**
+-  - llvm/test/CodeGen/*/Hexagon/**
+-  - llvm/test/DebugInfo/*/Hexagon/**
+-  - llvm/test/Transforms/*/Hexagon
+-  - llvm/test/MC/Disassembler/Hexagon/**
+-  - llvm/test/MC/Hexagon/**
+-  - llvm/test/tools/llvm-objdump/ELF/Hexagon/**
 -
 -backend:loongarch:
 -  - llvm/include/llvm/IR/IntrinsicsLoongArch.td
@@ -1499,6 +1678,8 @@ index b42bcb1887fb..000000000000
 -  - clang/lib/Driver/ToolChains/Arch/LoongArch.*
 -  - clang/lib/CodeGen/Targets/LoongArch.cpp
 -  - clang/include/clang/Basic/BuiltinsLoongArch*
+-  - clang/include/clang/Sema/SemaLoongArch.h
+-  - clang/lib/Sema/SemaLoongArch.cpp
 -
 -backend:MSP430:
 -  - llvm/include/llvm/IR/IntrinsicsMSP430.td
@@ -1546,6 +1727,8 @@ index b42bcb1887fb..000000000000
 -  - llvm/unittests/Target/WebAssembly/**
 -  - llvm/test/DebugInfo/WebAssembly/**
 -  - llvm/test/MC/WebAssembly/**
+-  - clang/include/clang/Sema/SemaWasm.h
+-  - clang/lib/Sema/SemaLoongWasm.cpp
 -
 -backend:X86:
 -  - llvm/include/llvm/IR/IntrinsicsX86.td
@@ -1565,9 +1748,62 @@ index b42bcb1887fb..000000000000
 -  - llvm/include/llvm/TargetParser/X86*
 -  - llvm/lib/TargetParser/X86*
 -  - llvm/utils/TableGen/X86*
+-  - clang/include/clang/Sema/SemaX86.h
+-  - clang/lib/Sema/SemaX86.cpp
+-
+-backend:PowerPC:
+-  - llvm/include/llvm/BinaryFormat/ELFRelocs/PowerPC*
+-  - llvm/include/llvm/BinaryFormat/XCOFF.h
+-  - llvm/include/llvm/IR/IntrinsicsPowerPC.td
+-  - llvm/lib/CodeGen/AsmPrinter/AIXException.cpp
+-  - llvm/lib/Target/PowerPC/**
+-  - llvm/test/Analysis/**/PowerPC/**
+-  - llvm/test/CodeGen/PowerPC/**
+-  - llvm/test/CodeGen/MIR/PowerPC/**
+-  - llvm/test/DebugInfo/XCOFF/**
+-  - llvm/test/DebugInfo/PowerPC/**
+-  - llvm/test/LTO/PowerPC/**
+-  - llvm/test/MC/Disassembler/PowerPC/**
+-  - llvm/test/MC/PowerPC/**
+-  - llvm/test/MC/XCOFF/**
+-  - llvm/test/Transforms/**/PowerPC/**
+-  - clang/include/clang/Basic/BuiltinsPPC.*
+-  - clang/lib/Basic/Targets/PPC.*
+-  - clang/lib/CodeGen/Targets/PPC.cpp
+-  - clang/lib/Driver/ToolChains/PPC*
+-  - clang/lib/Driver/ToolChains/AIX*
+-  - clang/lib/Driver/ToolChains/Arch/PPC.*
+-  - clang/test/CodeGen/PowerPC/**
+-  - clang/include/clang/Sema/SemaPPC.h
+-  - clang/lib/Sema/SemaPPC.cpp
+-
+-backend:SystemZ:
+-  - llvm/include/llvm/BinaryFormat/ELFRelocs/SystemZ*
+-  - llvm/include/llvm/BinaryFormat/GOFF.h
+-  - llvm/include/llvm/IR/IntrinsicsSystemZ.td
+-  - llvm/lib/Target/SystemZ/**
+-  - llvm/test/Analysis/**/SystemZ/**
+-  - llvm/test/CodeGen/SystemZ/**
+-  - llvm/test/DebugInfo/SystemZ/**
+-  - llvm/test/ExecutionEngine/**/SystemZ/**
+-  - llvm/test/MC/Disassembler/SystemZ/**
+-  - llvm/test/MC/GOFF/**
+-  - llvm/test/MC/SystemZ/**
+-  - llvm/test/Transforms/**/SystemZ/**
+-  - clang/include/clang/Basic/BuiltinsSystemZ.*
+-  - clang/lib/Basic/Targets/SystemZ.*
+-  - clang/lib/CodeGen/Targets/SystemZ.cpp
+-  - clang/lib/Driver/ToolChains/ZOS*
+-  - clang/lib/Driver/ToolChains/Arch/SystemZ.*
+-  - clang/test/CodeGen/SystemZ/**
+-  - clang/include/clang/Sema/SemaSystemZ.h
+-  - clang/lib/Sema/SemaSystemZ.cpp
 -
 -third-party:unittests:
 -  - third-party/unittests/**
+-
+-third-party:benchmark:
+-  - third-party/benchmark/**
 -
 -llvm:binary-utilities:
 -  - llvm/docs/CommandGuide/llvm-*
@@ -1630,6 +1866,12 @@ index b42bcb1887fb..000000000000
 -
 -openmp:libomptarget:
 -  - any: ['openmp/**', '!openmp/runtime/**']
+-
+-bazel:
+-  - utils/bazel/**
+-
+-offload:
+-  - offload/**
 diff --git a/.github/workflows/README.md b/.github/workflows/README.md
 deleted file mode 100644
 index ce34d2337e9c..000000000000
@@ -1639,11 +1881,10 @@ index ce34d2337e9c..000000000000
 -Github action workflows should be stored in this directory.
 diff --git a/.github/workflows/build-ci-container.yml b/.github/workflows/build-ci-container.yml
 deleted file mode 100644
-index ad3d50d4d578..000000000000
+index 28fc7de2ee06..000000000000
 --- a/.github/workflows/build-ci-container.yml
 +++ /dev/null
-@@ -1,60 +0,0 @@
--
+@@ -1,112 +0,0 @@
 -name: Build CI Container
 -
 -permissions:
@@ -1664,9 +1905,41 @@ index ad3d50d4d578..000000000000
 -      - '.github/workflows/containers/github-action-ci/**'
 -
 -jobs:
--  build-ci-container:
+-  # TODO(boomanaiden154): Switch this back to a single stage build when we can
+-  # run this on the self-hosted runners and don't have to do it this way to
+-  # avoid timeouts.
+-  build-ci-container-stage1:
 -    if: github.repository_owner == 'llvm'
 -    runs-on: ubuntu-latest
+-    steps:
+-      - name: Checkout LLVM
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: .github/workflows/containers/github-action-ci/
+-      - name: Change podman Root Direcotry
+-        run: |
+-          mkdir -p ~/.config/containers
+-          sudo mkdir -p /mnt/podman
+-          sudo chown `whoami`:`whoami` /mnt/podman
+-          cp ./.github/workflows/containers/github-action-ci/storage.conf ~/.config/containers/storage.conf
+-          podman info
+-      - name: Build container stage1
+-        working-directory: ./.github/workflows/containers/github-action-ci/
+-        run: |
+-          podman build -t stage1-toolchain --target stage1-toolchain -f stage1.Dockerfile .
+-      - name: Save container image
+-        run: |
+-          podman save stage1-toolchain > stage1-toolchain.tar
+-      - name: Upload container image
+-        uses: actions/upload-artifact@v4
+-        with:
+-          name: stage1-toolchain
+-          path: stage1-toolchain.tar
+-          retention-days: 1
+-  build-ci-container-stage2:
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    needs: build-ci-container-stage1
 -    permissions:
 -      packages: write
 -    steps:
@@ -1683,10 +1956,31 @@ index ad3d50d4d578..000000000000
 -        with:
 -          sparse-checkout: .github/workflows/containers/github-action-ci/
 -
+-      - name: Change podman Root Direcotry
+-        run: |
+-          mkdir -p ~/.config/containers
+-          sudo mkdir -p /mnt/podman
+-          sudo chown `whoami`:`whoami` /mnt/podman
+-          cp ./.github/workflows/containers/github-action-ci/storage.conf ~/.config/containers/storage.conf
+-          podman info
+-
+-        # Download the container image into /mnt/podman rather than
+-        # $GITHUB_WORKSPACE to avoid space limitations on the default drive
+-        # and use the permissions setup for /mnt/podman.
+-      - name: Download stage1-toolchain
+-        uses: actions/download-artifact@v4
+-        with:
+-          name: stage1-toolchain
+-          path: /mnt/podman
+-
+-      - name: Load stage1-toolchain
+-        run: |
+-          podman load -i /mnt/podman/stage1-toolchain.tar
+-
 -      - name: Build Container
 -        working-directory: ./.github/workflows/containers/github-action-ci/
 -        run: |
--          podman build -t ${{ steps.vars.outputs.container-name-tag }} .
+-          podman build -t ${{ steps.vars.outputs.container-name-tag }} -f stage2.Dockerfile .
 -          podman tag ${{ steps.vars.outputs.container-name-tag }} ${{ steps.vars.outputs.container-name }}:latest
 -
 -      - name: Test Container
@@ -1703,6 +1997,147 @@ index ad3d50d4d578..000000000000
 -          podman login -u ${{ github.actor }} -p $GITHUB_TOKEN ghcr.io
 -          podman push ${{ steps.vars.outputs.container-name-tag }}
 -          podman push ${{ steps.vars.outputs.container-name }}:latest
+diff --git a/.github/workflows/ci-post-commit-analyzer-run.py b/.github/workflows/ci-post-commit-analyzer-run.py
+deleted file mode 100644
+index e5f52d3b2fa6..000000000000
+--- a/.github/workflows/ci-post-commit-analyzer-run.py
++++ /dev/null
+@@ -1,34 +0,0 @@
+-import json
+-import multiprocessing
+-import os
+-import re
+-import subprocess
+-import sys
+-
+-
+-def run_analyzer(data):
+-    os.chdir(data["directory"])
+-    command = (
+-        data["command"]
+-        + f" --analyze --analyzer-output html -o analyzer-results -Xclang -analyzer-config -Xclang max-nodes=75000"
+-    )
+-    print(command)
+-    subprocess.run(command, shell=True, check=True)
+-
+-
+-def pool_error(e):
+-    print("Error analyzing file:", e)
+-
+-
+-def main():
+-    db_path = sys.argv[1]
+-    database = json.load(open(db_path))
+-
+-    with multiprocessing.Pool() as pool:
+-        pool.map_async(run_analyzer, [k for k in database], error_callback=pool_error)
+-        pool.close()
+-        pool.join()
+-
+-
+-if __name__ == "__main__":
+-    main()
+diff --git a/.github/workflows/ci-post-commit-analyzer.yml b/.github/workflows/ci-post-commit-analyzer.yml
+deleted file mode 100644
+index d614dd07b3a4..000000000000
+--- a/.github/workflows/ci-post-commit-analyzer.yml
++++ /dev/null
+@@ -1,95 +0,0 @@
+-name: Post-Commit Static Analyzer
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  push:
+-    branches:
+-      - 'release/**'
+-    paths:
+-      - 'clang/**'
+-      - 'llvm/**'
+-      - '.github/workflows/ci-post-commit-analyzer.yml'
+-  pull_request:
+-    types:
+-      - opened
+-      - synchronize
+-      - reopened
+-      - closed
+-    paths:
+-      - '.github/workflows/ci-post-commit-analyzer.yml'
+-      - '.github/workflows/ci-post-commit-analyzer-run.py'
+-  schedule:
+-    - cron: '30 0 * * *'
+-
+-concurrency:
+-  group: >-
+-    llvm-project-${{ github.workflow }}-${{ github.event_name == 'pull_request' &&
+-      ( github.event.pull_request.number || github.ref) }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  post-commit-analyzer:
+-    if: >-
+-      github.repository_owner == 'llvm' &&
+-      github.event.action != 'closed'
+-    runs-on: ubuntu-22.04
+-    container:
+-      image: 'ghcr.io/llvm/ci-ubuntu-22.04:latest'
+-    env:
+-      LLVM_VERSION: 18
+-    steps:
+-      - name: Checkout Source
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-
+-      - name: Setup ccache
+-        uses: hendrikmuhs/ccache-action@v1
+-        with:
+-          # A full build of llvm, clang, lld, and lldb takes about 250MB
+-          # of ccache space. There's not much reason to have more than this,
+-          # because we usually won't need to save cache entries from older
+-          # builds.  Also, there is an overall 10GB cache limit, and each
+-          # run creates a new cache entry so we want to ensure that we have
+-          # enough cache space for all the tests to run at once and still
+-          # fit under the 10 GB limit.
+-          # Default to 2G to workaround: https://github.com/hendrikmuhs/ccache-action/issues/174
+-          max-size: 2G
+-          key: post-commit-analyzer
+-          variant: sccache
+-
+-      - name: Configure
+-        run: |
+-              cmake -B build -S llvm -G Ninja \
+-                  -DLLVM_ENABLE_ASSERTIONS=ON \
+-                  -DLLVM_ENABLE_PROJECTS=clang \
+-                  -DLLVM_BUILD_LLVM_DYLIB=ON \
+-                  -DLLVM_LINK_LLVM_DYLIB=ON \
+-                  -DCMAKE_CXX_COMPILER=clang++ \
+-                  -DCMAKE_C_COMPILER=clang \
+-                  -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+-                  -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+-                  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+-                  -DLLVM_INCLUDE_TESTS=OFF \
+-                  -DCLANG_INCLUDE_TESTS=OFF \
+-                  -DCMAKE_BUILD_TYPE=Release
+-
+-      - name: Build
+-        run: |
+-          # FIXME: We need to build all the generated header files in order to be able to run
+-          # the analyzer on every file.  Building libLLVM and libclang is probably overkill for
+-          # this, but it's better than building every target.
+-          ninja -v -C build libLLVM.so libclang.so
+-
+-          # Run the analyzer.
+-          python3 .github/workflows/ci-post-commit-analyzer-run.py build/compile_commands.json
+-
+-          scan-build --generate-index-only build/analyzer-results
+-
+-      - name: Upload Results
+-        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-        if: always()
+-        with:
+-          name: analyzer-results
+-          path: 'build/analyzer-results/*'
+-
 diff --git a/.github/workflows/clang-tests.yml b/.github/workflows/clang-tests.yml
 deleted file mode 100644
 index 2569ce19518e..000000000000
@@ -1747,52 +2182,102 @@ index 2569ce19518e..000000000000
 -    with:
 -      build_target: check-clang
 -      projects: clang;lldb;libclc
-diff --git a/.github/workflows/containers/github-action-ci/Dockerfile b/.github/workflows/containers/github-action-ci/Dockerfile
+diff --git a/.github/workflows/containers/github-action-ci/bootstrap.patch b/.github/workflows/containers/github-action-ci/bootstrap.patch
 deleted file mode 100644
-index d91a7ad3a9d0..000000000000
---- a/.github/workflows/containers/github-action-ci/Dockerfile
+index 55631c54a396..000000000000
+--- a/.github/workflows/containers/github-action-ci/bootstrap.patch
 +++ /dev/null
-@@ -1,48 +0,0 @@
+@@ -1,13 +0,0 @@
+-diff --git a/clang/cmake/caches/BOLT-PGO.cmake b/clang/cmake/caches/BOLT-PGO.cmake
+-index 1a04ca9a74e5..d092820e4115 100644
+---- a/clang/cmake/caches/BOLT-PGO.cmake
+-+++ b/clang/cmake/caches/BOLT-PGO.cmake
+-@@ -4,6 +4,8 @@ set(CLANG_BOOTSTRAP_TARGETS
+-   stage2-clang-bolt
+-   stage2-distribution
+-   stage2-install-distribution
+-+  clang
+-+  lld
+-   CACHE STRING "")
+- set(BOOTSTRAP_CLANG_BOOTSTRAP_TARGETS
+-   clang-bolt
+diff --git a/.github/workflows/containers/github-action-ci/stage1.Dockerfile b/.github/workflows/containers/github-action-ci/stage1.Dockerfile
+deleted file mode 100644
+index 8c6bcf463841..000000000000
+--- a/.github/workflows/containers/github-action-ci/stage1.Dockerfile
++++ /dev/null
+@@ -1,44 +0,0 @@
 -FROM docker.io/library/ubuntu:22.04 as base
--ENV LLVM_SYSROOT=/opt/llvm/
+-ENV LLVM_SYSROOT=/opt/llvm
 -
--FROM base as toolchain
--ENV LLVM_MAJOR=17
--ENV LLVM_VERSION=${LLVM_MAJOR}.0.6
--ENV LLVM_DIRNAME=clang+llvm-${LLVM_VERSION}-x86_64-linux-gnu-ubuntu-22.04
--ENV LLVM_FILENAME=${LLVM_DIRNAME}.tar.xz
+-FROM base as stage1-toolchain
+-ENV LLVM_VERSION=17.0.6
 -
 -RUN apt-get update && \
 -    apt-get install -y \
--    curl \
--    xz-utils
+-    wget \
+-    gcc \
+-    g++ \
+-    cmake \
+-    ninja-build \
+-    python3 \
+-    git \
+-    curl
 -
--RUN mkdir -p $LLVM_SYSROOT/bin/ $LLVM_SYSROOT/lib/
+-RUN curl -O -L https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-$LLVM_VERSION.tar.gz && tar -xf llvmorg-$LLVM_VERSION.tar.gz
 -
--RUN curl -O -L https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/$LLVM_FILENAME
+-WORKDIR /llvm-project-llvmorg-$LLVM_VERSION
 -
--RUN tar -C $LLVM_SYSROOT --strip-components=1 -xJf $LLVM_FILENAME \
--    $LLVM_DIRNAME/bin/clang \
--    $LLVM_DIRNAME/bin/clang++ \
--    $LLVM_DIRNAME/bin/clang-cl \
--    $LLVM_DIRNAME/bin/clang-$LLVM_MAJOR \
--    $LLVM_DIRNAME/bin/lld \
--    $LLVM_DIRNAME/bin/ld.lld \
--    $LLVM_DIRNAME/lib/clang/
+-COPY bootstrap.patch /
 -
+-# TODO(boomanaiden154): Remove the patch pulled from a LLVM PR once we bump
+-# the toolchain to version 18 and the patch is in-tree.
+-# TODO(boomanaiden154): Remove the bootstrap patch once we unsplit the build
+-# and no longer need to explicitly build the stage2 dependencies.
+-RUN curl https://github.com/llvm/llvm-project/commit/dd0356d741aefa25ece973d6cc4b55dcb73b84b4.patch | patch -p1 && cat /bootstrap.patch | patch -p1
+-
+-RUN mkdir build
+-
+-RUN cmake -B ./build -G Ninja ./llvm \
+-  -C ./clang/cmake/caches/BOLT-PGO.cmake \
+-  -DBOOTSTRAP_LLVM_ENABLE_LLD=ON \
+-  -DBOOTSTRAP_BOOTSTRAP_LLVM_ENABLE_LLD=ON \
+-  -DPGO_INSTRUMENT_LTO=Thin \
+-  -DLLVM_ENABLE_RUNTIMES="compiler-rt" \
+-  -DCMAKE_INSTALL_PREFIX="$LLVM_SYSROOT" \
+-  -DLLVM_ENABLE_PROJECTS="bolt;clang;lld;clang-tools-extra" \
+-  -DLLVM_DISTRIBUTION_COMPONENTS="lld;compiler-rt;clang-format;scan-build" \
+-  -DCLANG_DEFAULT_LINKER="lld" \
+-  -DBOOTSTRAP_CLANG_PGO_TRAINING_DATA_SOURCE_DIR=/llvm-project-llvmorg-$LLVM_VERSION/llvm
+-
+-RUN ninja -C ./build stage2-instrumented-clang stage2-instrumented-lld
+diff --git a/.github/workflows/containers/github-action-ci/stage2.Dockerfile b/.github/workflows/containers/github-action-ci/stage2.Dockerfile
+deleted file mode 100644
+index 0ca0da87734c..000000000000
+--- a/.github/workflows/containers/github-action-ci/stage2.Dockerfile
++++ /dev/null
+@@ -1,29 +0,0 @@
+-FROM docker.io/library/ubuntu:22.04 as base
+-ENV LLVM_SYSROOT=/opt/llvm
+-
+-FROM stage1-toolchain AS stage2-toolchain
+-
+-RUN ninja -C ./build stage2-clang-bolt stage2-install-distribution && ninja -C ./build install-distribution && rm -rf ./build
 -
 -FROM base
 -
--COPY --from=toolchain $LLVM_SYSROOT $LLVM_SYSROOT
+-COPY --from=stage2-toolchain $LLVM_SYSROOT $LLVM_SYSROOT
 -
 -# Need to install curl for hendrikmuhs/ccache-action
 -# Need nodejs for some of the GitHub actions.
 -# Need perl-modules for clang analyzer tests.
+-# Need git for SPIRV-Tools tests.
 -RUN apt-get update && \
 -    apt-get install -y \
 -    binutils \
 -    cmake \
 -    curl \
+-    git \
 -    libstdc++-11-dev \
 -    ninja-build \
 -    nodejs \
@@ -1801,9 +2286,19 @@ index d91a7ad3a9d0..000000000000
 -
 -ENV LLVM_SYSROOT=$LLVM_SYSROOT
 -ENV PATH=${LLVM_SYSROOT}/bin:${PATH}
+diff --git a/.github/workflows/containers/github-action-ci/storage.conf b/.github/workflows/containers/github-action-ci/storage.conf
+deleted file mode 100644
+index 60f295ff1e96..000000000000
+--- a/.github/workflows/containers/github-action-ci/storage.conf
++++ /dev/null
+@@ -1,4 +0,0 @@
+-[storage]
+-  driver = "overlay"
+-  runroot = "/mnt/podman/container"
+-  graphroot = "/mnt/podman/image"
 diff --git a/.github/workflows/docs.yml b/.github/workflows/docs.yml
 deleted file mode 100644
-index 5936cdc46a90..000000000000
+index 800e92915735..000000000000
 --- a/.github/workflows/docs.yml
 +++ /dev/null
 @@ -1,169 +0,0 @@
@@ -1837,6 +2332,7 @@ index 5936cdc46a90..000000000000
 -      - 'polly/docs/**'
 -      - 'flang/docs/**'
 -      - 'flang/include/flang/Optimizer/Dialect/FIROps.td'
+-      - '.github/workflows/docs.yml'
 -  pull_request:
 -    paths:
 -      - 'llvm/docs/**'
@@ -1854,6 +2350,7 @@ index 5936cdc46a90..000000000000
 -      - 'polly/docs/**'
 -      - 'flang/docs/**'
 -      - 'flang/include/flang/Optimizer/Dialect/FIROps.td'
+-      - '.github/workflows/docs.yml'
 -
 -jobs:
 -  check-docs-build:
@@ -1907,7 +2404,7 @@ index 5936cdc46a90..000000000000
 -        with:
 -          fetch-depth: 1
 -      - name: Setup Python env
--        uses: actions/setup-python@v4
+-        uses: actions/setup-python@v5
 -        with:
 -          python-version: '3.11'
 -          cache: 'pip'
@@ -1971,17 +2468,99 @@ index 5936cdc46a90..000000000000
 -          TZ=UTC ninja -C polly-build docs-polly-html docs-polly-man
 -      - name: Build Flang docs
 -        if: steps.docs-changed-subprojects.outputs.flang_any_changed == 'true'
--        # TODO(boomanaiden154): Remove the SPHINX_WARNINGS_AS_ERRORS from the
--        # CMake invocation once the warnings in the flang docs build are fixed.
 -        run: |
--          cmake -B flang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;mlir;flang" -DLLVM_ENABLE_SPHINX=ON -DSPHINX_WARNINGS_AS_ERRORS=OFF ./llvm
--          TZ=UTC ninja -C flang-build docs-flang-html docs-flang-man
+-          cmake -B flang-build -GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;mlir;flang" -DLLVM_ENABLE_SPHINX=ON ./llvm
+-          TZ=UTC ninja -C flang-build docs-flang-html
+diff --git a/.github/workflows/email-check.yaml b/.github/workflows/email-check.yaml
+deleted file mode 100644
+index 8f32d020975f..000000000000
+--- a/.github/workflows/email-check.yaml
++++ /dev/null
+@@ -1,46 +0,0 @@
+-name: "Check for private emails used in PRs"
+-
+-on:
+-  pull_request:
+-    types:
+-      - opened
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  validate_email:
+-    runs-on: ubuntu-latest
+-    if: github.repository == 'llvm/llvm-project'
+-    steps:
+-      - name: Fetch LLVM sources
+-        uses: actions/checkout@v4
+-        with:
+-          ref: ${{ github.event.pull_request.head.sha }}
+-
+-      - name: Extract author email
+-        id: author
+-        run: |
+-          git log -1
+-          echo "EMAIL=$(git show -s --format='%ae' HEAD~0)" >> $GITHUB_OUTPUT
+-          # Create empty comment file
+-          echo "[]" > comments
+-
+-      - name: Validate author email
+-        if: ${{ endsWith(steps.author.outputs.EMAIL, 'noreply.github.com')  }}
+-        env:
+-          COMMENT: >-
+-            ⚠️ We detected that you are using a GitHub private e-mail address to contribute to the repo.<br/>
+-            Please turn off [Keep my email addresses private](https://github.com/settings/emails) setting in your account.<br/>
+-            See [LLVM Discourse](https://discourse.llvm.org/t/hidden-emails-on-github-should-we-do-something-about-it) for more information.
+-        run: |
+-          cat << EOF > comments
+-          [{"body" : "$COMMENT"}]
+-          EOF
+-
+-      - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-        if: always()
+-        with:
+-          name: workflow-args
+-          path: |
+-            comments
+diff --git a/.github/workflows/get-llvm-version/action.yml b/.github/workflows/get-llvm-version/action.yml
+deleted file mode 100644
+index 2218d926fc13..000000000000
+--- a/.github/workflows/get-llvm-version/action.yml
++++ /dev/null
+@@ -1,26 +0,0 @@
+-name: Get LLVM Version
+-description: >-
+-  Get the LLVM version from the llvm-project source tree.  This action assumes
+-  the llvm-project sources have already been checked out into GITHUB_WORKSPACE.
+-
+-outputs:
+-  major:
+-    description: LLVM major version
+-    value: ${{ steps.version.outputs.major }}
+-  minor:
+-    description: LLVM minor version
+-    value: ${{ steps.version.outputs.minor }}
+-  patch:
+-    description: LLVM patch version
+-    value: ${{ steps.version.outputs.patch }}
+-
+-runs:
+-  using: "composite"
+-  steps:
+-    - name: Get Version
+-      shell: bash
+-      id: version
+-      run: |
+-        for v in major minor patch; do
+-          echo "$v=`llvm/utils/release/get-llvm-version.sh --$v`" >> $GITHUB_OUTPUT
+-        done
 diff --git a/.github/workflows/issue-release-workflow.yml b/.github/workflows/issue-release-workflow.yml
 deleted file mode 100644
-index b09ef6555fa9..000000000000
+index 5027d4f3ea6f..000000000000
 --- a/.github/workflows/issue-release-workflow.yml
 +++ /dev/null
-@@ -1,94 +0,0 @@
+@@ -1,69 +0,0 @@
 -# This contains the workflow definitions that allow users to test backports
 -# to the release branch using comments on issues.
 -#
@@ -2017,6 +2596,9 @@ index b09ef6555fa9..000000000000
 -  backport-commits:
 -    name: Backport Commits
 -    runs-on: ubuntu-latest
+-    permissions:
+-      issues: write
+-      pull-requests: write
 -    if: >-
 -      (github.repository == 'llvm/llvm-project') &&
 -      !startswith(github.event.comment.body, '<!--IGNORE-->') &&
@@ -2034,7 +2616,7 @@ index b09ef6555fa9..000000000000
 -
 -      - name: Setup Environment
 -        run: |
--          pip install -r ./llvm/utils/git/requirements.txt
+-          pip install --require-hashes -r ./llvm/utils/git/requirements.txt
 -          ./llvm/utils/git/github-automation.py --token ${{ github.token }} setup-llvmbot-git
 -
 -      - name: Backport Commits
@@ -2042,43 +2624,15 @@ index b09ef6555fa9..000000000000
 -          printf "%s" "$COMMENT_BODY" |
 -          ./llvm/utils/git/github-automation.py \
 -          --repo "$GITHUB_REPOSITORY" \
--          --token ${{ secrets.RELEASE_WORKFLOW_PUSH_SECRET }} \
+-          --token "${{ secrets.RELEASE_WORKFLOW_PR_CREATE }}" \
 -          release-workflow \
+-          --branch-repo-token ${{ secrets.RELEASE_WORKFLOW_PUSH_SECRET }} \
 -          --issue-number ${{ github.event.issue.number }} \
--          --phab-token ${{ secrets.RELEASE_WORKFLOW_PHAB_TOKEN }} \
--          auto
--
--  create-pull-request:
--    name: Create Pull Request
--    runs-on: ubuntu-latest
--    if: >-
--      (github.repository == 'llvm/llvm-project') &&
--      !startswith(github.event.comment.body, '<!--IGNORE-->') &&
--      contains(github.event.comment.body, '/branch ')
--
--    steps:
--      - name: Fetch LLVM sources
--        uses: actions/checkout@v4
--        with:
--          persist-credentials: false
--
--      - name: Setup Environment
--        run: |
--          pip install -r ./llvm/utils/git/requirements.txt
--
--      - name: Create Pull Request
--        run: |
--          printf "%s" "$COMMENT_BODY" |
--          ./llvm/utils/git/github-automation.py \
--          --repo "$GITHUB_REPOSITORY" \
--          --token ${{ secrets.RELEASE_WORKFLOW_PUSH_SECRET }} \
--          release-workflow \
--          --issue-number ${{ github.event.issue.number }} \
--          --phab-token ${{ secrets.RELEASE_WORKFLOW_PHAB_TOKEN }} \
+-          --requested-by ${{ (github.event.action == 'opened' && github.event.issue.user.login) || github.event.comment.user.login }} \
 -          auto
 diff --git a/.github/workflows/issue-subscriber.yml b/.github/workflows/issue-subscriber.yml
 deleted file mode 100644
-index ef6cd0674e80..000000000000
+index ef4fdf441819..000000000000
 --- a/.github/workflows/issue-subscriber.yml
 +++ /dev/null
 @@ -1,37 +0,0 @@
@@ -2106,7 +2660,7 @@ index ef6cd0674e80..000000000000
 -      - name: Setup Automation Script
 -        working-directory: ./llvm/utils/git/
 -        run: |
--          pip install -r requirements.txt
+-          pip install --require-hashes -r requirements.txt
 -
 -      - name: Update watchers
 -        working-directory: ./llvm/utils/git/
@@ -2119,9 +2673,172 @@ index ef6cd0674e80..000000000000
 -            issue-subscriber \
 -            --issue-number '${{ github.event.issue.number }}' \
 -            --label-name "$LABEL_NAME"
+diff --git a/.github/workflows/issue-write.yml b/.github/workflows/issue-write.yml
+deleted file mode 100644
+index 5334157a7fd2..000000000000
+--- a/.github/workflows/issue-write.yml
++++ /dev/null
+@@ -1,157 +0,0 @@
+-name: Comment on an issue
+-
+-on:
+-  workflow_run:
+-    workflows:
+-      - "Check code formatting"
+-      - "Check for private emails used in PRs"
+-      - "PR Request Release Note"
+-    types:
+-      - completed
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  pr-comment:
+-    runs-on: ubuntu-latest
+-    permissions:
+-      pull-requests: write
+-    if: >
+-      github.event.workflow_run.event == 'pull_request' &&
+-      (
+-        github.event.workflow_run.conclusion == 'success' ||
+-        github.event.workflow_run.conclusion == 'failure'
+-      )
+-    steps:
+-      - name: Fetch Sources
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: |
+-            .github/workflows/unprivileged-download-artifact/action.yml
+-          sparse-checkout-cone-mode: false
+-      - name: 'Download artifact'
+-        uses: ./.github/workflows/unprivileged-download-artifact
+-        id: download-artifact
+-        with:
+-          run-id: ${{ github.event.workflow_run.id }}
+-          artifact-name: workflow-args
+-
+-      - name: 'Comment on PR'
+-        if: steps.download-artifact.outputs.artifact-id != ''
+-        uses: actions/github-script@v3
+-        with:
+-          github-token: ${{ secrets.GITHUB_TOKEN }}
+-          script: |
+-            var fs = require('fs');
+-            const comments = JSON.parse(fs.readFileSync('./comments'));
+-            if (!comments || comments.length == 0) {
+-              return;
+-            }
+-
+-            let runInfo = await github.actions.getWorkflowRun({
+-              owner: context.repo.owner,
+-              repo: context.repo.repo,
+-              run_id: context.payload.workflow_run.id
+-            });
+-
+-            console.log(runInfo);
+-
+-
+-            // Query to find the number of the pull request that triggered this job.
+-            // The associated pull requests are based off of the branch name, so if
+-            // you create a pull request for a branch, close it, and then create
+-            // another pull request with the same branch, then this query will return
+-            // two associated pull requests.  This is why we have to fetch all the
+-            // associated pull requests and then iterate through them to find the
+-            // one that is open.
+-            const gql_query = `
+-              query($repo_owner : String!, $repo_name : String!, $branch: String!) {
+-                repository(owner: $repo_owner, name: $repo_name) {
+-                  ref (qualifiedName: $branch) {
+-                    associatedPullRequests(first: 100) {
+-                      nodes {
+-                        baseRepository {
+-                          owner {
+-                            login
+-                          }
+-                        }
+-                        number
+-                        state
+-                      }
+-                    }
+-                  }
+-                }
+-              }
+-            `
+-            const gql_variables = {
+-              repo_owner: runInfo.data.head_repository.owner.login,
+-              repo_name: runInfo.data.head_repository.name,
+-              branch: runInfo.data.head_branch
+-            }
+-            const gql_result = await github.graphql(gql_query, gql_variables);
+-            console.log(gql_result);
+-            // If the branch for the PR was deleted before this job has a chance
+-            // to run, then the ref will be null.  This can happen if someone:
+-            // 1. Rebase the PR, which triggers some workflow.
+-            // 2. Immediately merges the PR and deletes the branch.
+-            // 3. The workflow finishes and triggers this job.
+-            if (!gql_result.repository.ref) {
+-              console.log("Ref has been deleted");
+-              return;
+-            }
+-            console.log(gql_result.repository.ref.associatedPullRequests.nodes);
+-
+-            var pr_number = 0;
+-            gql_result.repository.ref.associatedPullRequests.nodes.forEach((pr) => {
+-
+-              // The largest PR number is the one we care about.  The only way
+-              // to have more than one associated pull requests is if all the
+-              // old pull requests are in the closed state.
+-              if (pr.baseRepository.owner.login = context.repo.owner && pr.number > pr_number) {
+-                pr_number = pr.number;
+-              }
+-            });
+-            if (pr_number == 0) {
+-              console.log("Error retrieving pull request number");
+-              return;
+-            }
+-            
+-            await comments.forEach(function (comment) {
+-              if (comment.id) {
+-                // Security check: Ensure that this comment was created by
+-                // the github-actions bot, so a malicious input won't overwrite
+-                // a user's comment.
+-                github.issues.getComment({
+-                  owner: context.repo.owner,
+-                  repo: context.repo.repo,
+-                  comment_id: comment.id
+-                }).then((old_comment) => {
+-                  console.log(old_comment);
+-                  if (old_comment.data.user.login != "github-actions[bot]") {
+-                    console.log("Invalid comment id: " + comment.id);
+-                    return;
+-                  }
+-                  github.issues.updateComment({
+-                    owner: context.repo.owner,
+-                    repo: context.repo.repo,
+-                    issue_number: pr_number,
+-                    comment_id: comment.id,
+-                    body: comment.body
+-                  });
+-                });
+-              } else {
+-                github.issues.createComment({
+-                  owner: context.repo.owner,
+-                  repo: context.repo.repo,
+-                  issue_number: pr_number,
+-                  body: comment.body
+-                });
+-              }
+-            });
+-
+-      - name: Dump comments file
+-        if: >-
+-          always() &&
+-          steps.download-artifact.outputs.artifact-id != ''
+-        run: cat comments
 diff --git a/.github/workflows/libclang-abi-tests.yml b/.github/workflows/libclang-abi-tests.yml
 deleted file mode 100644
-index 972d21c3bced..000000000000
+index 9e839ff49e28..000000000000
 --- a/.github/workflows/libclang-abi-tests.yml
 +++ /dev/null
 @@ -1,168 +0,0 @@
@@ -2160,9 +2877,9 @@ index 972d21c3bced..000000000000
 -      ABI_HEADERS: ${{ steps.vars.outputs.ABI_HEADERS }}
 -      ABI_LIBS: ${{ steps.vars.outputs.ABI_LIBS }}
 -      BASELINE_VERSION_MAJOR: ${{ steps.vars.outputs.BASELINE_VERSION_MAJOR }}
--      LLVM_VERSION_MAJOR: ${{ steps.version.outputs.LLVM_VERSION_MAJOR }}
--      LLVM_VERSION_MINOR: ${{ steps.version.outputs.LLVM_VERSION_MINOR }}
--      LLVM_VERSION_PATCH: ${{ steps.version.outputs.LLVM_VERSION_PATCH }}
+-      LLVM_VERSION_MAJOR: ${{ steps.version.outputs.major }}
+-      LLVM_VERSION_MINOR: ${{ steps.version.outputs.minor }}
+-      LLVM_VERSION_PATCH: ${{ steps.version.outputs.patch }}
 -    steps:
 -      - name: Checkout source
 -        uses: actions/checkout@v4
@@ -2171,14 +2888,14 @@ index 972d21c3bced..000000000000
 -
 -      - name: Get LLVM version
 -        id: version
--        uses: llvm/actions/get-llvm-version@main
+-        uses: ./.github/workflows/get-llvm-version
 -
 -      - name: Setup Variables
 -        id: vars
 -        run: |
 -          remote_repo='https://github.com/llvm/llvm-project'
--          if [ ${{ steps.version.outputs.LLVM_VERSION_PATCH }} -eq 0 ]; then
--            major_version=$(( ${{ steps.version.outputs.LLVM_VERSION_MAJOR }} - 1))
+-          if [ ${{ steps.version.outputs.patch }} -eq 0 ]; then
+-            major_version=$(( ${{ steps.version.outputs.major }} - 1))
 -            baseline_ref="llvmorg-$major_version.1.0"
 -
 -            # If there is a minor release, we want to use that as the base line.
@@ -2200,8 +2917,8 @@ index 972d21c3bced..000000000000
 -            } >> "$GITHUB_OUTPUT"
 -          else
 -            {
--              echo "BASELINE_VERSION_MAJOR=${{ steps.version.outputs.LLVM_VERSION_MAJOR }}"
--              echo "BASELINE_REF=llvmorg-${{ steps.version.outputs.LLVM_VERSION_MAJOR }}.1.0"
+-              echo "BASELINE_VERSION_MAJOR=${{ steps.version.outputs.major }}"
+-              echo "BASELINE_REF=llvmorg-${{ steps.version.outputs.major }}.1.0"
 -              echo "ABI_HEADERS=."
 -              echo "ABI_LIBS=libclang.so libclang-cpp.so"
 -            } >> "$GITHUB_OUTPUT"
@@ -2295,7 +3012,7 @@ index 972d21c3bced..000000000000
 -          path: compat_reports/
 diff --git a/.github/workflows/libclang-python-tests.yml b/.github/workflows/libclang-python-tests.yml
 deleted file mode 100644
-index 497f6ca5c554..000000000000
+index 33d6c2174dca..000000000000
 --- a/.github/workflows/libclang-python-tests.yml
 +++ /dev/null
 @@ -1,47 +0,0 @@
@@ -2337,14 +3054,14 @@ index 497f6ca5c554..000000000000
 -    strategy:
 -      fail-fast: false
 -      matrix:
--        python-version: ["3.7", "3.11"]
+-        python-version: ["3.8", "3.11"]
 -    uses: ./.github/workflows/llvm-project-tests.yml
 -    with:
 -      build_target: check-clang-python
 -      projects: clang
 -      # There is an issue running on "windows-2019".
 -      # See https://github.com/llvm/llvm-project/issues/76601#issuecomment-1873049082.
--      os_list: '["ubuntu-latest"]'
+-      os_list: '["ubuntu-22.04"]'
 -      python_version: ${{ matrix.python-version }}
 diff --git a/.github/workflows/libclc-tests.yml b/.github/workflows/libclc-tests.yml
 deleted file mode 100644
@@ -2393,10 +3110,10 @@ index 23192f776a98..000000000000
 -      projects: clang;libclc
 diff --git a/.github/workflows/libcxx-build-and-test.yaml b/.github/workflows/libcxx-build-and-test.yaml
 deleted file mode 100644
-index 5727b956dc6d..000000000000
+index 1456f245cf7c..000000000000
 --- a/.github/workflows/libcxx-build-and-test.yaml
 +++ /dev/null
-@@ -1,201 +0,0 @@
+@@ -1,234 +0,0 @@
 -# This file defines pre-commit CI for libc++, libc++abi, and libunwind (on Github).
 -#
 -# We split the configurations in multiple stages with the intent of saving compute time
@@ -2437,11 +3154,11 @@ index 5727b956dc6d..000000000000
 -  # LLVM POST-BRANCH bump version
 -  # LLVM POST-BRANCH add compiler test for ToT - 1, e.g. "Clang 17"
 -  # LLVM RELEASE bump remove compiler ToT - 3, e.g. "Clang 15"
--  LLVM_HEAD_VERSION: "18"   # Used compiler, update POST-BRANCH.
--  LLVM_PREVIOUS_VERSION: "17"
--  LLVM_OLDEST_VERSION: "16"
+-  LLVM_HEAD_VERSION: "19"   # Used compiler, update POST-BRANCH.
+-  LLVM_PREVIOUS_VERSION: "18"
+-  LLVM_OLDEST_VERSION: "17"
 -  GCC_STABLE_VERSION: "13"
--  LLVM_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer-18"
+-  LLVM_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer-19"
 -  CLANG_CRASH_DIAGNOSTICS_DIR: "crash_diagnostics"
 -
 -
@@ -2458,14 +3175,12 @@ index 5727b956dc6d..000000000000
 -          'generic-cxx26',
 -          'generic-modules'
 -        ]
--        cc: [  'clang-18' ]
--        cxx: [ 'clang++-18' ]
--        clang_tidy: [ 'ON' ]
+-        cc: [  'clang-19' ]
+-        cxx: [ 'clang++-19' ]
 -        include:
 -          - config: 'generic-gcc'
--            cc: 'gcc-13'
--            cxx: 'g++-13'
--            clang_tidy: 'OFF'
+-            cc: 'gcc-14'
+-            cxx: 'g++-14'
 -    steps:
 -      - uses: actions/checkout@v4
 -      - name: ${{ matrix.config }}.${{ matrix.cxx }}
@@ -2473,8 +3188,7 @@ index 5727b956dc6d..000000000000
 -        env:
 -          CC: ${{ matrix.cc }}
 -          CXX: ${{ matrix.cxx }}
--          ENABLE_CLANG_TIDY: ${{ matrix.clang_tidy }}
--      - uses: actions/upload-artifact@v3
+-      - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
 -        if: always()
 -        with:
 -          name: ${{ matrix.config }}-${{ matrix.cxx }}-results
@@ -2499,22 +3213,18 @@ index 5727b956dc6d..000000000000
 -          'generic-cxx20',
 -          'generic-cxx23'
 -        ]
--        cc: [ 'clang-18' ]
--        cxx: [ 'clang++-18' ]
--        clang_tidy: [ 'ON' ]
+-        cc: [ 'clang-19' ]
+-        cxx: [ 'clang++-19' ]
 -        include:
 -          - config: 'generic-gcc-cxx11'
--            cc: 'gcc-13'
--            cxx: 'g++-13'
--            clang_tidy: 'OFF'
--          - config: 'generic-cxx23'
--            cc: 'clang-16'
--            cxx: 'clang++-16'
--            clang_tidy: 'OFF'
+-            cc: 'gcc-14'
+-            cxx: 'g++-14'
 -          - config: 'generic-cxx23'
 -            cc: 'clang-17'
 -            cxx: 'clang++-17'
--            clang_tidy: 'OFF'
+-          - config: 'generic-cxx26'
+-            cc: 'clang-18'
+-            cxx: 'clang++-18'
 -    steps:
 -      - uses: actions/checkout@v4
 -      - name: ${{ matrix.config }}
@@ -2522,11 +3232,10 @@ index 5727b956dc6d..000000000000
 -        env:
 -          CC: ${{ matrix.cc }}
 -          CXX: ${{ matrix.cxx }}
--          ENABLE_CLANG_TIDY: ${{ matrix.clang_tidy }}
--      - uses: actions/upload-artifact@v3
+-      - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
 -        if: always()  # Upload artifacts even if the build or test suite fails
 -        with:
--          name: ${{ matrix.config }}-results
+-          name: ${{ matrix.config }}-${{ matrix.cxx }}-results
 -          path: |
 -            **/test-results.xml
 -            **/*.abilist
@@ -2585,10 +3294,9 @@ index 5727b956dc6d..000000000000
 -      - name: ${{ matrix.config }}
 -        run: libcxx/utils/ci/run-buildbot ${{ matrix.config }}
 -        env:
--          CC: clang-18
--          CXX: clang++-18
--          ENABLE_CLANG_TIDY: "OFF"
--      - uses: actions/upload-artifact@v3
+-          CC: clang-19
+-          CXX: clang++-19
+-      - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
 -        if: always()
 -        with:
 -          name: ${{ matrix.config }}-results
@@ -2598,6 +3306,48 @@ index 5727b956dc6d..000000000000
 -            **/CMakeError.log
 -            **/CMakeOutput.log
 -            **/crash_diagnostics/*
+-  windows:
+-    runs-on: windows-2022
+-    needs: [ stage1 ]
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        include:
+-        - { config: clang-cl-dll, mingw: false }
+-        - { config: clang-cl-static, mingw: false }
+-        - { config: clang-cl-no-vcruntime, mingw: false }
+-        - { config: clang-cl-debug, mingw: false }
+-        - { config: clang-cl-static-crt, mingw: false }
+-        - { config: mingw-dll, mingw: true }
+-        - { config: mingw-static, mingw: true }
+-        - { config: mingw-dll-i686, mingw: true }
+-    steps:
+-      - uses: actions/checkout@v4
+-      - name: Install dependencies
+-        run: |
+-          choco install -y ninja
+-          pip install psutil
+-      - name: Install a current LLVM
+-        if: ${{ matrix.mingw != true }}
+-        run: |
+-          choco install -y llvm --version=18.1.6 --allow-downgrade
+-      - name: Install llvm-mingw
+-        if: ${{ matrix.mingw == true }}
+-        run: |
+-          curl -LO https://github.com/mstorsjo/llvm-mingw/releases/download/20240606/llvm-mingw-20240606-ucrt-x86_64.zip
+-          powershell Expand-Archive llvm-mingw*.zip -DestinationPath .
+-          del llvm-mingw*.zip
+-          mv llvm-mingw* c:\llvm-mingw
+-          echo "c:\llvm-mingw\bin" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+-      - name: Add Git Bash to the path
+-        run: |
+-          echo "c:\Program Files\Git\usr\bin" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+-      - name: Set up the MSVC dev environment
+-        if: ${{ matrix.mingw != true }}
+-        uses: ilammy/msvc-dev-cmd@v1
+-      - name: Build and test
+-        run: |
+-          bash libcxx/utils/ci/run-buildbot ${{ matrix.config }}
 diff --git a/.github/workflows/libcxx-check-generated-files.yml b/.github/workflows/libcxx-check-generated-files.yml
 deleted file mode 100644
 index 570055624b2a..000000000000
@@ -2628,6 +3378,144 @@ index 570055624b2a..000000000000
 -
 -      - name: Check generated files
 -        run: libcxx/utils/ci/run-buildbot check-generated-output
+diff --git a/.github/workflows/libcxx-restart-preempted-jobs.yaml b/.github/workflows/libcxx-restart-preempted-jobs.yaml
+deleted file mode 100644
+index 21879ce19c27..000000000000
+--- a/.github/workflows/libcxx-restart-preempted-jobs.yaml
++++ /dev/null
+@@ -1,132 +0,0 @@
+-name: Restart Preempted Libc++ Workflow
+-
+-# The libc++ builders run on preemptable VMs, which can be shutdown at any time.
+-# This workflow identifies when a workflow run was canceled due to the VM being preempted,
+-# and restarts the workflow run.
+-
+-# We identify a canceled workflow run by checking the annotations of the check runs in the check suite,
+-# which should contain the message "The runner has received a shutdown signal."
+-
+-# Note: If a job is both preempted and also contains a non-preemption failure, we do not restart the workflow.
+-
+-on:
+-  workflow_run:
+-    workflows: [Build and Test libc\+\+]
+-    types:
+-      - completed
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  restart:
+-    if: github.repository_owner == 'llvm' && (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled')
+-    name: "Restart Job"
+-    permissions:
+-      statuses: read
+-      checks: write
+-      actions: write
+-    runs-on: ubuntu-latest
+-    steps:
+-      - name: "Restart Job"
+-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea #v7.0.1
+-        with:
+-          script: |
+-            const failure_regex = /Process completed with exit code 1./
+-            const preemption_regex = /The runner has received a shutdown signal/
+-
+-            const wf_run = context.payload.workflow_run
+-            core.notice(`Running on "${wf_run.display_title}" by @${wf_run.actor.login} (event: ${wf_run.event})\nWorkflow run URL: ${wf_run.html_url}`)
+-
+-
+-            async function create_check_run(conclusion, message) {
+-                // Create a check run on the given workflow run to indicate if
+-                // we are restarting the workflow or not.
+-                if (conclusion != 'success' && conclusion != 'skipped' && conclusion != 'neutral') {
+-                  core.setFailed('Invalid conclusion: ' + conclusion)
+-                }
+-                await github.rest.checks.create({
+-                    owner: context.repo.owner,
+-                    repo: context.repo.repo,
+-                    name: 'Restart Preempted Job',
+-                    head_sha: wf_run.head_sha,
+-                    status: 'completed',
+-                    conclusion: conclusion,
+-                    output: {
+-                      title: 'Restarted Preempted Job',
+-                      summary: message
+-                    }
+-                })
+-            }
+-
+-            console.log('Listing check runs for suite')
+-            const check_suites = await github.rest.checks.listForSuite({
+-              owner: context.repo.owner,
+-              repo: context.repo.repo,
+-              check_suite_id: context.payload.workflow_run.check_suite_id,
+-              per_page: 100 // FIXME: We don't have 100 check runs yet, but we should handle this better.
+-            })
+-
+-            check_run_ids = [];
+-            for (check_run of check_suites.data.check_runs) {
+-              console.log('Checking check run: ' + check_run.id);
+-              if (check_run.status != 'completed') {
+-                console.log('Check run was not completed. Skipping.');
+-                continue;
+-              }
+-              if (check_run.conclusion != 'failure' && check_run.conclusion != 'cancelled') {
+-                console.log('Check run had conclusion: ' + check_run.conclusion + '. Skipping.');
+-                continue;
+-              }
+-              check_run_ids.push(check_run.id);
+-            }
+-
+-            has_preempted_job = false;
+-
+-            for (check_run_id of check_run_ids) {
+-              console.log('Listing annotations for check run: ' + check_run_id);
+-
+-              annotations = await github.rest.checks.listAnnotations({
+-                owner: context.repo.owner,
+-                repo: context.repo.repo,
+-                check_run_id: check_run_id
+-              })
+-
+-              for (annotation of annotations.data) {
+-                if (annotation.annotation_level != 'failure') {
+-                  continue;
+-                }
+-
+-                const preemption_match = annotation.message.match(preemption_regex);
+-
+-                if (preemption_match != null) {
+-                  console.log('Found preemption message: ' + annotation.message);
+-                  has_preempted_job = true;
+-                }
+-
+-                const failure_match = annotation.message.match(failure_regex);
+-                if (failure_match != null) {
+-                  // We only want to restart the workflow if all of the failures were due to preemption.
+-                  // We don't want to restart the workflow if there were other failures.
+-                  core.notice('Choosing not to rerun workflow because we found a non-preemption failure' +
+-                    'Failure message: "' + annotation.message + '"');
+-                  await create_check_run('skipped', 'Choosing not to rerun workflow because we found a non-preemption failure\n'
+-                    + 'Failure message: ' + annotation.message)
+-                  return;
+-                }
+-              }
+-            }
+-
+-            if (!has_preempted_job) {
+-              core.notice('No preempted jobs found. Not restarting workflow.');
+-              await create_check_run('neutral', 'No preempted jobs found. Not restarting workflow.')
+-              return;
+-            }
+-
+-            core.notice("Restarted workflow: " + context.payload.workflow_run.id);
+-            await github.rest.actions.reRunWorkflowFailedJobs({
+-                owner: context.repo.owner,
+-                repo: context.repo.repo,
+-                run_id: context.payload.workflow_run.id
+-              })
+-            await create_check_run('success', 'Restarted workflow run due to preempted job')
 diff --git a/.github/workflows/lld-tests.yml b/.github/workflows/lld-tests.yml
 deleted file mode 100644
 index 599c0975fa68..000000000000
@@ -2719,7 +3607,7 @@ index 6bb972195625..000000000000
 -      projects: clang;lldb
 diff --git a/.github/workflows/llvm-bugs.yml b/.github/workflows/llvm-bugs.yml
 deleted file mode 100644
-index f592dd6ccd90..000000000000
+index c392078fa452..000000000000
 --- a/.github/workflows/llvm-bugs.yml
 +++ /dev/null
 @@ -1,63 +0,0 @@
@@ -2739,7 +3627,7 @@ index f592dd6ccd90..000000000000
 -    runs-on: ubuntu-latest
 -    if: github.repository == 'llvm/llvm-project'
 -    steps:
--      - uses: actions/setup-node@v3
+-      - uses: actions/setup-node@v4
 -        with:
 -          node-version: 18
 -          check-latest: true
@@ -2788,10 +3676,10 @@ index f592dd6ccd90..000000000000
 -            .then((msg) => console.log(msg));
 diff --git a/.github/workflows/llvm-project-tests.yml b/.github/workflows/llvm-project-tests.yml
 deleted file mode 100644
-index a52dd2db8035..000000000000
+index fa11f6b9b456..000000000000
 --- a/.github/workflows/llvm-project-tests.yml
 +++ /dev/null
-@@ -1,149 +0,0 @@
+@@ -1,154 +0,0 @@
 -name: LLVM Project Tests
 -
 -permissions:
@@ -2833,7 +3721,12 @@ index a52dd2db8035..000000000000
 -        type: string
 -        # Use windows-2019 due to:
 -        # https://developercommunity.visualstudio.com/t/Prev-Issue---with-__assume-isnan-/1597317
--        default: '["ubuntu-latest", "windows-2019", "macOS-13"]'
+-        # Use ubuntu-22.04 rather than ubuntu-latest to match the ubuntu
+-        # version in the CI container. Without this, setup-python tries
+-        # to install a python version linked against a newer version of glibc.
+-        # TODO(boomanaiden154): Bump the Ubuntu version once the version in the
+-        # container is bumped.
+-        default: '["ubuntu-22.04", "windows-2019", "macOS-13"]'
 -
 -      python_version:
 -        required: false
@@ -2871,7 +3764,7 @@ index a52dd2db8035..000000000000
 -      # lldb.  Using this setup-python action to make 3.10 the default
 -      # python fixes this.
 -      - name: Setup Python
--        uses: actions/setup-python@v4
+-        uses: actions/setup-python@v5
 -        with:
 -          python-version: ${{ inputs.python_version }}
 -      - name: Install Ninja
@@ -2907,7 +3800,8 @@ index a52dd2db8035..000000000000
 -        run: |
 -          if [ "${{ runner.os }}" == "Linux" ]; then
 -            builddir="/mnt/build/"
--            mkdir -p $builddir
+-            sudo mkdir -p $builddir
+-            sudo chown gha $builddir
 -            extra_cmake_args="-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang"
 -          else
 -            builddir="$(pwd)"/build
@@ -2925,6 +3819,7 @@ index a52dd2db8035..000000000000
 -                -DCMAKE_BUILD_TYPE=Release \
 -                -DLLVM_ENABLE_ASSERTIONS=ON \
 -                -DLLDB_INCLUDE_TESTS=OFF \
+-                -DLIBCLC_TARGETS_TO_BUILD="amdgcn--;amdgcn--amdhsa;r600--;nvptx--;nvptx64--;nvptx--nvidiacl;nvptx64--nvidiacl" \
 -                -DCMAKE_C_COMPILER_LAUNCHER=sccache \
 -                -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
 -                $extra_cmake_args \
@@ -2936,14 +3831,50 @@ index a52dd2db8035..000000000000
 -        env:
 -          LLVM_BUILDDIR: ${{ steps.build-llvm.outputs.llvm-builddir }}
 -        run: |
--          # Make sure all of LLVM libraries that llvm-config needs are built.
+-          # The libclc tests don't have a generated check target so all we can
+-          # do is build it.
 -          ninja -C "$LLVM_BUILDDIR"
--          cmake -G Ninja -S libclc -B libclc-build -DLLVM_DIR="$LLVM_BUILDDIR"/lib/cmake/llvm -DLIBCLC_TARGETS_TO_BUILD="amdgcn--;amdgcn--amdhsa;r600--;nvptx--;nvptx64--;nvptx--nvidiacl;nvptx64--nvidiacl"
--          ninja -C libclc-build
--          ninja -C libclc-build test
+diff --git a/.github/workflows/llvm-project-workflow-tests.yml b/.github/workflows/llvm-project-workflow-tests.yml
+deleted file mode 100644
+index a2539b279be0..000000000000
+--- a/.github/workflows/llvm-project-workflow-tests.yml
++++ /dev/null
+@@ -1,32 +0,0 @@
+-# This workflow will test the llvm-project-tests workflow in PRs
+-# targetting the main branch.  Since this workflow doesn't normally
+-# run on main PRs, we need some way to test it to ensure new updates
+-# don't break it.
+-
+-name: LLVM Workflow Test
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  pull_request:
+-    branches:
+-      - 'main'
+-    paths:
+-      - '.github/workflows/llvm-project-tests.yml'
+-      - '.github/workflows/llvm-project-workflow-tests.yml'
+-
+-concurrency:
+-  # Skip intermediate builds: always.
+-  # Cancel intermediate builds: only if it is a pull request build.
+-  group: ${{ github.workflow }}-${{ github.ref }}
+-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+-
+-jobs:
+-  llvm-test:
+-    if: github.repository_owner == 'llvm'
+-    name: Build and Test
+-    uses: ./.github/workflows/llvm-project-tests.yml
+-    with:
+-      build_target: check-all
+-      projects: clang;lld;libclc;lldb
 diff --git a/.github/workflows/llvm-tests.yml b/.github/workflows/llvm-tests.yml
 deleted file mode 100644
-index 64d60bc3da45..000000000000
+index 26e644229aaa..000000000000
 --- a/.github/workflows/llvm-tests.yml
 +++ /dev/null
 @@ -1,192 +0,0 @@
@@ -2992,9 +3923,9 @@ index 64d60bc3da45..000000000000
 -      ABI_HEADERS: ${{ steps.vars.outputs.ABI_HEADERS }}
 -      BASELINE_VERSION_MAJOR: ${{ steps.vars.outputs.BASELINE_VERSION_MAJOR }}
 -      BASELINE_VERSION_MINOR: ${{ steps.vars.outputs.BASELINE_VERSION_MINOR }}
--      LLVM_VERSION_MAJOR: ${{ steps.version.outputs.LLVM_VERSION_MAJOR }}
--      LLVM_VERSION_MINOR: ${{ steps.version.outputs.LLVM_VERSION_MINOR }}
--      LLVM_VERSION_PATCH: ${{ steps.version.outputs.LLVM_VERSION_PATCH }}
+-      LLVM_VERSION_MAJOR: ${{ steps.version.outputs.major }}
+-      LLVM_VERSION_MINOR: ${{ steps.version.outputs.minor }}
+-      LLVM_VERSION_PATCH: ${{ steps.version.outputs.patch }}
 -    steps:
 -      - name: Checkout source
 -        uses: actions/checkout@v4
@@ -3003,7 +3934,7 @@ index 64d60bc3da45..000000000000
 -
 -      - name: Get LLVM version
 -        id: version
--        uses: llvm/actions/get-llvm-version@main
+-        uses: ./.github/workflows/get-llvm-version
 -
 -      - name: Setup Variables
 -        id: vars
@@ -3015,14 +3946,14 @@ index 64d60bc3da45..000000000000
 -          # 18.1.0 We want to check 17.0.x
 -          # 18.1.1 We want to check 18.1.0
 -          echo "BASELINE_VERSION_MINOR=1" >> "$GITHUB_OUTPUT"
--          if [ ${{ steps.version.outputs.LLVM_VERSION_PATCH }} -eq 0 ]; then
+-          if [ ${{ steps.version.outputs.patch }} -eq 0 ]; then
 -            {
--              echo "BASELINE_VERSION_MAJOR=$(( ${{ steps.version.outputs.LLVM_VERSION_MAJOR }} - 1))"
+-              echo "BASELINE_VERSION_MAJOR=$(( ${{ steps.version.outputs.major }} - 1))"
 -              echo "ABI_HEADERS=llvm-c"
 -            } >> "$GITHUB_OUTPUT"
 -          else
 -            {
--              echo "BASELINE_VERSION_MAJOR=${{ steps.version.outputs.LLVM_VERSION_MAJOR }}"
+-              echo "BASELINE_VERSION_MAJOR=${{ steps.version.outputs.major }}"
 -              echo "ABI_HEADERS=."
 -            } >> "$GITHUB_OUTPUT"
 -          fi
@@ -3139,6 +4070,53 @@ index 64d60bc3da45..000000000000
 -        with:
 -          name: compat-report-${{ github.sha }}
 -          path: compat_reports/
+diff --git a/.github/workflows/merged-prs.yml b/.github/workflows/merged-prs.yml
+deleted file mode 100644
+index e29afd4097f9..000000000000
+--- a/.github/workflows/merged-prs.yml
++++ /dev/null
+@@ -1,41 +0,0 @@
+-name: "Add buildbot information to first PRs from new contributors"
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  # It's safe to use pull_request_target here, because we aren't checking out
+-  # code from the pull request branch.
+-  # See https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+-  pull_request_target:
+-    types:
+-      - closed
+-
+-jobs:
+-  buildbot_comment:
+-    runs-on: ubuntu-latest
+-    permissions:
+-      pull-requests: write
+-    if: >-
+-      (github.repository == 'llvm/llvm-project') &&
+-      (github.event.pull_request.merged == true)
+-    steps:
+-      - name: Checkout Automation Script
+-        uses: actions/checkout@v4
+-        with:
+-          sparse-checkout: llvm/utils/git/
+-          ref: main
+-
+-      - name: Setup Automation Script
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          pip install --require-hashes -r requirements.txt
+-
+-      - name: Add Buildbot information comment
+-        working-directory: ./llvm/utils/git/
+-        run: |
+-          python3 ./github-automation.py \
+-            --token '${{ secrets.GITHUB_TOKEN }}' \
+-            pr-buildbot-information \
+-            --issue-number "${{ github.event.pull_request.number }}" \
+-            --author "${{ github.event.pull_request.user.login }}"
 diff --git a/.github/workflows/new-issues.yml b/.github/workflows/new-issues.yml
 deleted file mode 100644
 index ed15fdb9fba6..000000000000
@@ -3170,7 +4148,7 @@ index ed15fdb9fba6..000000000000
 -          enable-versioned-regex: 0
 diff --git a/.github/workflows/new-prs.yml b/.github/workflows/new-prs.yml
 deleted file mode 100644
-index a60f82ce35d1..000000000000
+index 88175d6f8d64..000000000000
 --- a/.github/workflows/new-prs.yml
 +++ /dev/null
 @@ -1,75 +0,0 @@
@@ -3219,7 +4197,7 @@ index a60f82ce35d1..000000000000
 -      - name: Setup Automation Script
 -        working-directory: ./llvm/utils/git/
 -        run: |
--          pip install -r requirements.txt
+-          pip install --require-hashes -r requirements.txt
 -
 -      - name: Greet Author
 -        working-directory: ./llvm/utils/git/
@@ -3251,18 +4229,19 @@ index a60f82ce35d1..000000000000
 -          repo-token: ${{ secrets.ISSUE_SUBSCRIBER_TOKEN }}
 diff --git a/.github/workflows/pr-code-format.yml b/.github/workflows/pr-code-format.yml
 deleted file mode 100644
-index 3d0c23917bd4..000000000000
+index 22357e5d99e4..000000000000
 --- a/.github/workflows/pr-code-format.yml
 +++ /dev/null
-@@ -1,84 +0,0 @@
+@@ -1,96 +0,0 @@
 -name: "Check code formatting"
--on:
--  pull_request_target:
--    branches:
--      - main
 -
 -permissions:
--  pull-requests: write
+-  contents: read
+-
+-on:
+-  pull_request:
+-    branches:
+-      - main
 -
 -jobs:
 -  code_formatter:
@@ -3288,12 +4267,13 @@ index 3d0c23917bd4..000000000000
 -          separator: ","
 -          skip_initial_fetch: true
 -
--      # We need to make sure that we aren't executing/using any code from the
--      # PR for security reasons as we're using pull_request_target. Checkout
--      # the target branch with the necessary files.
+-      # We need to pull the script from the main branch, so that we ensure
+-      # we get the latest version of this script.
 -      - name: Fetch code formatting utils
 -        uses: actions/checkout@v4
 -        with:
+-          repository: ${{ github.repository }}
+-          ref: ${{ github.base_ref }}
 -          sparse-checkout: |
 -            llvm/utils/git/requirements_formatting.txt
 -            llvm/utils/git/code-format-helper.py
@@ -3310,10 +4290,10 @@ index 3d0c23917bd4..000000000000
 -      - name: Install clang-format
 -        uses: aminya/setup-cpp@v1
 -        with:
--          clangformat: 17.0.1
+-          clangformat: 18.1.7
 -
 -      - name: Setup Python env
--        uses: actions/setup-python@v4
+-        uses: actions/setup-python@v5
 -        with:
 -          python-version: '3.11'
 -          cache: 'pip'
@@ -3332,24 +4312,33 @@ index 3d0c23917bd4..000000000000
 -        # to take advantage of the new --diff_from_common_commit option
 -        # explicitly in code-format-helper.py and not have to diff starting at
 -        # the merge base.
+-        # Create an empty comments file so the pr-write job doesn't fail.
 -        run: |
+-          echo "[]" > comments &&
 -          python ./code-format-tools/llvm/utils/git/code-format-helper.py \
+-            --write-comment-to-file \
 -            --token ${{ secrets.GITHUB_TOKEN }} \
 -            --issue-number $GITHUB_PR_NUMBER \
 -            --start-rev $(git merge-base $START_REV $END_REV) \
 -            --end-rev $END_REV \
 -            --changed-files "$CHANGED_FILES"
+-
+-      - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-        if: always()
+-        with:
+-          name: workflow-args
+-          path: |
+-            comments
 diff --git a/.github/workflows/pr-request-release-note.yml b/.github/workflows/pr-request-release-note.yml
 deleted file mode 100644
-index 0fcb95f1fe29..000000000000
+index 2fa501dda16b..000000000000
 --- a/.github/workflows/pr-request-release-note.yml
 +++ /dev/null
-@@ -1,43 +0,0 @@
+@@ -1,49 +0,0 @@
 -name: PR Request Release Note
 -
 -permissions:
 -  contents: read
--  pull-requests: write
 -
 -on:
 -  pull_request:
@@ -3376,7 +4365,7 @@ index 0fcb95f1fe29..000000000000
 -
 -      - name: Install Dependencies
 -        run: |
--          pip install -r llvm/utils/git/requirements.txt
+-          pip install --require-hashes -r llvm/utils/git/requirements.txt
 -
 -      - name: Request Release Note
 -        env:
@@ -3388,9 +4377,16 @@ index 0fcb95f1fe29..000000000000
 -            --token "$GITHUB_TOKEN" \
 -            request-release-note \
 -            --pr-number ${{ github.event.pull_request.number}}
+-
+-      - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-        if: always()
+-        with:
+-          name: workflow-args
+-          path: |
+-            comments
 diff --git a/.github/workflows/pr-subscriber.yml b/.github/workflows/pr-subscriber.yml
 deleted file mode 100644
-index 3952493bb698..000000000000
+index 272d3e2f9ef8..000000000000
 --- a/.github/workflows/pr-subscriber.yml
 +++ /dev/null
 @@ -1,34 +0,0 @@
@@ -3418,7 +4414,7 @@ index 3952493bb698..000000000000
 -      - name: Setup Automation Script
 -        working-directory: ./llvm/utils/git/
 -        run: |
--          pip install -r requirements.txt
+-          pip install --require-hashes -r requirements.txt
 -
 -      - name: Update watchers
 -        working-directory: ./llvm/utils/git/
@@ -3428,13 +4424,16 @@ index 3952493bb698..000000000000
 -            pr-subscriber \
 -            --issue-number "${{ github.event.number }}" \
 -            --label-name "${{ github.event.label.name }}"
-diff --git a/.github/workflows/release-binaries.yml b/.github/workflows/release-binaries.yml
+diff --git a/.github/workflows/release-binaries-all.yml b/.github/workflows/release-binaries-all.yml
 deleted file mode 100644
-index 02082a84d8c1..000000000000
---- a/.github/workflows/release-binaries.yml
+index 394b0c74d24e..000000000000
+--- a/.github/workflows/release-binaries-all.yml
 +++ /dev/null
-@@ -1,306 +0,0 @@
--name: Release Binaries
+@@ -1,98 +0,0 @@
+-name: Release Binaries All
+-
+-permissions:
+-  contents: read # Default everything to read-only
 -
 -on:
 -  workflow_dispatch:
@@ -3460,9 +4459,240 @@ index 02082a84d8c1..000000000000
 -        required: true
 -        default: false
 -        type: boolean
--  schedule:
--    # * is a special character in YAML so you have to quote this string
--    - cron:  '0 8 1 * *'
+-
+-  pull_request:
+-    types:
+-      - opened
+-      - synchronize
+-      - reopened
+-      # When a PR is closed, we still start this workflow, but then skip
+-      # all the jobs, which makes it effectively a no-op.  The reason to
+-      # do this is that it allows us to take advantage of concurrency groups
+-      # to cancel in progress CI jobs whenever the PR is closed.
+-      - closed
+-    paths:
+-      - '.github/workflows/release-binaries-all.yml'
+-      - '.github/workflows/release-binaries.yml'
+-      - '.github/workflows/release-binaries-setup-stage/*'
+-      - '.github/workflows/release-binaries-save-stage/*'
+-
+-concurrency:
+-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || 'dispatch' }}
+-  cancel-in-progress: True
+-
+-jobs:
+-  setup-variables:
+-    if: >-
+-      (github.event_name != 'pull_request' || github.event.action != 'closed')
+-    runs-on: ubuntu-22.04
+-    outputs:
+-      release-version: ${{ steps.vars.outputs.release-version }}
+-      upload: ${{ steps.vars.outputs.upload }}
+-    steps:
+-      - shell: bash
+-        id: vars
+-        run: |
+-          upload="${{ inputs.upload }}"
+-          release_version="${{ inputs.release-version }}"
+-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+-            upload="false"
+-            release_version=""
+-          fi
+-          echo "release-version=$release_version" >> "$GITHUB_OUTPUT"
+-          echo "upload=$upload" >> "$GITHUB_OUTPUT"
+-
+-  release-binaries-all:
+-    name: Build Release Binaries
+-    needs:
+-      - setup-variables
+-    permissions:
+-      contents: write # For release uploads
+-      id-token: write     # For artifact attestations
+-      attestations: write # For artifact attestations
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        runs-on:
+-          - ubuntu-22.04
+-          - windows-2022
+-          - macos-13
+-          - macos-14
+-
+-    uses: ./.github/workflows/release-binaries.yml
+-    with:
+-      release-version: "${{ needs.setup-variables.outputs.release-version }}"
+-      upload: ${{ needs.setup-variables.outputs.upload == 'true'}}
+-      runs-on: "${{ matrix.runs-on }}"
+-    secrets:
+-      # This will be empty for pull_request events, but that's fine, because
+-      # the release-binaries workflow does not use this secret for the
+-      # pull_request event.
+-      RELEASE_TASKS_USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
+diff --git a/.github/workflows/release-binaries-save-stage/action.yml b/.github/workflows/release-binaries-save-stage/action.yml
+deleted file mode 100644
+index f08088c7bc56..000000000000
+--- a/.github/workflows/release-binaries-save-stage/action.yml
++++ /dev/null
+@@ -1,44 +0,0 @@
+-name: Save Stage
+-description: >-
+-  Upload the source and binary directories from a build stage so that they
+-  can be re-used in the next stage.  This action is used to the release
+-  binaries workflow into multiple stages to avoid the 6 hour timeout on
+-  the GitHub hosted runners.
+-inputs:
+-  build-prefix:
+-    description: "Directory containing the build directory."
+-    required: true
+-    type: 'string'
+-
+-permissions:
+-  contents: read
+-
+-runs:
+-  using: "composite"
+-  steps:
+-    # We need to create an archive of the build directory, because it has too
+-    # many files to upload.
+-    - name: Package Build and Source Directories
+-      shell: bash
+-      run: |
+-        # Remove .git/config to avoid leaking GITHUB_TOKEN stored there.
+-        # See https://unit42.paloaltonetworks.com/github-repo-artifacts-leak-tokens/
+-        rm -Rf .git/config
+-        # Windows does not support symlinks, so we need to dereference them.
+-        tar --exclude build/ ${{ (runner.os == 'Windows' && '-h') || '' }} -c . | zstd -T0 -c > ../llvm-project.tar.zst
+-        mv ../llvm-project.tar.zst .
+-        tar -C ${{ inputs.build-prefix }} -c build/ | zstd -T0 -c > build.tar.zst
+-
+-    - name: Upload Stage 1 Source
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-source
+-        path: llvm-project.tar.zst
+-        retention-days: 2
+-
+-    - name: Upload Stage 1 Build Dir
+-      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-      with:
+-        name: ${{ runner.os}}-${{ runner.arch }}-${{ github.job }}-build
+-        path: build.tar.zst
+-        retention-days: 2
+diff --git a/.github/workflows/release-binaries-setup-stage/action.yml b/.github/workflows/release-binaries-setup-stage/action.yml
+deleted file mode 100644
+index f5e5db27e659..000000000000
+--- a/.github/workflows/release-binaries-setup-stage/action.yml
++++ /dev/null
+@@ -1,59 +0,0 @@
+-name: Setup Stage
+-description: >-
+-  Setup the next stage of the release binaries workflow.  This sets up the
+-  environment correctly for a new stage of the release binaries workflow
+-  and also restores the source and build directory from the previous stage.
+-
+-inputs:
+-  previous-artifact:
+-    description: >-
+-      A unique descriptor for the artifact from the previous stage.  This will
+-      be used to construct the final artifact pattern, which is:
+-      $RUNNER_OS-$RUNNER_ARCH-$PREVIOUS_ARTIFACT-*
+-    required: false
+-    type: 'string'
+-
+-outputs:
+-  build-prefix:
+-    description: "Directory containing the build directory."
+-    value: ${{ steps.build-prefix.outputs.build-prefix }}
+-
+-runs:
+-  using: "composite"
+-  steps:
+-    - name: Install Ninja
+-      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
+-   
+-    - name: Setup Windows
+-      if: startsWith(runner.os, 'Windows')
+-      uses: llvm/actions/setup-windows@main
+-      with:
+-        arch: amd64
+-
+-    - name: Set Build Prefix
+-      id: build-prefix
+-      shell: bash
+-      run: |
+-        build_prefix=`pwd`
+-        if [ "${{ runner.os }}" = "Linux" ]; then
+-          sudo chown $USER:$USER /mnt/
+-          build_prefix=/mnt/
+-        fi
+-        echo "build-prefix=$build_prefix" >> $GITHUB_OUTPUT
+-
+-    - name: Download Previous Stage Artifact
+-      if: ${{ inputs.previous-artifact }}
+-      id: download
+-      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-      with:
+-        pattern: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.previous-artifact }}-*
+-        merge-multiple: true
+-
+-    - name: Unpack Artifact
+-      if: ${{ steps.download.outputs.download-path }}
+-      shell: bash
+-      run: |
+-        tar --zstd -xf llvm-project.tar.zst
+-        rm llvm-project.tar.zst
+-        tar --zstd -C ${{ steps.build-prefix.outputs.build-prefix}} -xf build.tar.zst
+-        rm build.tar.zst
+diff --git a/.github/workflows/release-binaries.yml b/.github/workflows/release-binaries.yml
+deleted file mode 100644
+index f24e25879b96..000000000000
+--- a/.github/workflows/release-binaries.yml
++++ /dev/null
+@@ -1,492 +0,0 @@
+-name: Release Binaries
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: false
+-        type: string
+-      upload:
+-        description: 'Upload binaries to the release page'
+-        required: true
+-        default: false
+-        type: boolean
+-      runs-on:
+-        description: "Runner to use for the build"
+-        required: true
+-        type: choice
+-        options:
+-          - ubuntu-22.04
+-          - windows-2022
+-          - macos-13
+-          - macos-14
+-
+-  workflow_call:
+-    inputs:
+-      release-version:
+-        description: 'Release Version'
+-        required: false
+-        type: string
+-      upload:
+-        description: 'Upload binaries to the release page'
+-        required: true
+-        default: false
+-        type: boolean
+-      runs-on:
+-        description: "Runner to use for the build"
+-        required: true
+-        type: string
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN:
+-        description: "Secret used to check user permissions."
+-        required: false
+-
 -
 -permissions:
 -  contents: read # Default everything to read-only
@@ -3470,30 +4700,45 @@ index 02082a84d8c1..000000000000
 -jobs:
 -  prepare:
 -    name: Prepare to build binaries
--    runs-on: ubuntu-22.04
+-    runs-on: ${{ inputs.runs-on }}
 -    if: github.repository == 'llvm/llvm-project'
 -    outputs:
 -      release-version: ${{ steps.vars.outputs.release-version }}
 -      ref: ${{ steps.vars.outputs.ref }}
 -      upload: ${{ steps.vars.outputs.upload }}
+-      target-cmake-flags: ${{ steps.vars.outputs.target-cmake-flags }}
+-      build-flang: ${{ steps.vars.outputs.build-flang }}
+-      enable-pgo: ${{ steps.vars.outputs.enable-pgo }}
+-      release-binary-basename: ${{ steps.vars.outputs.release-binary-basename }}
+-      release-binary-filename: ${{ steps.vars.outputs.release-binary-filename }}
 -
 -    steps:
+-    # It's good practice to use setup-python, but this is also required on macos-14
+-    # due to https://github.com/actions/runner-images/issues/10385
+-    - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+-      with:
+-        python-version: '3.12'
+-
 -    - name: Checkout LLVM
 -      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 -
 -    - name: Install Dependencies
+-      shell: bash
 -      run: |
--        pip install -r ./llvm/utils/git/requirements.txt
+-        pip install --require-hashes -r ./llvm/utils/git/requirements.txt
 -
 -    - name: Check Permissions
+-      if: github.event_name != 'pull_request'
 -      env:
 -        GITHUB_TOKEN: ${{ github.token }}
 -        USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
+-      shell: bash
 -      run: |
 -        ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --user ${{ github.actor }} --user-token "$USER_TOKEN" check-permissions
 -
 -    - name: Collect Variables
 -      id: vars
+-      shell: bash
 -      # In order for the test-release.sh script to run correctly, the LLVM
 -      # source needs to be at the following location relative to the build dir:
 -      # | X.Y.Z-rcN | ./rcN/llvm-project
@@ -3503,249 +4748,405 @@ index 02082a84d8c1..000000000000
 -      # | X.Y.Z-rcN | -rc N -test-asserts
 -      # | X.Y.Z     | -final
 -      run: |
--        tag="${{ github.ref_name }}"
 -        trimmed=$(echo ${{ inputs.release-version }} | xargs)
--        [[ "$trimmed" != "" ]] && tag="llvmorg-$trimmed"
--        if [ "$tag" = "main" ]; then
--          # If tag is main, then we've been triggered by a scheduled so pass so
--          # use the head commit as the tag.
--          tag=`git rev-parse HEAD`
+-        if [ -n "$trimmed" ]; then
+-          release_version="$trimmed"
+-          ref="llvmorg-$release_version"
+-        else
+-          release_version="${{ (github.event_name == 'pull_request' && format('PR{0}', github.event.pull_request.number)) || 'CI'}}-${{ github.sha }}"
+-          ref=${{ github.sha }}
 -        fi
 -        if [ -n "${{ inputs.upload }}" ]; then
 -          upload="${{ inputs.upload }}"
 -        else
 -          upload="false"
 -        fi
--        bash .github/workflows/set-release-binary-outputs.sh "$tag" "$upload"
+-        echo "release-version=$release_version">> $GITHUB_OUTPUT
+-        echo "ref=$ref" >> $GITHUB_OUTPUT
+-        echo "upload=$upload" >> $GITHUB_OUTPUT
 -
--  build-stage1-linux:
--    name: "Build Stage 1 Linux"
+-        release_binary_basename="LLVM-$release_version-${{ runner.os }}-${{ runner.arch }}"
+-        echo "release-binary-basename=$release_binary_basename" >> $GITHUB_OUTPUT
+-        echo "release-binary-filename=$release_binary_basename.tar.xz" >> $GITHUB_OUTPUT
+-
+-        # Detect necessary CMake flags
+-        target="${{ runner.os }}-${{ runner.arch }}"
+-        echo "enable-pgo=false" >> $GITHUB_OUTPUT
+-        target_cmake_flags="-DLLVM_RELEASE_ENABLE_PGO=OFF"
+-        # The macOS builds try to cross compile some libraries so we need to
+-        # add extra CMake args to disable them.
+-        # See https://github.com/llvm/llvm-project/issues/99767
+-        if [ "${{ runner.os }}" = "macOS" ]; then
+-          target_cmake_flags="$target_cmake_flags -DBOOTSTRAP_COMPILER_RT_ENABLE_IOS=OFF"
+-          if [ "${{ runner.arch }}" = "ARM64" ]; then
+-            arches=arm64
+-          else
+-            arches=x86_64
+-          fi
+-          target_cmake_flags="$target_cmake_flags -DBOOTSTRAP_DARWIN_osx_ARCHS=$arches -DBOOTSTRAP_DARWIN_osx_BUILTIN_ARCHS=$arches"
+-        fi
+-
+-        build_flang="true"
+-
+-        if [ "${{ runner.os }}" = "Windows" ]; then
+-          # The build times out on Windows, so we need to disable LTO.
+-          target_cmake_flags="$target_cmake_flags -DLLVM_RELEASE_ENABLE_LTO=OFF"
+-        fi
+-
+-        echo "target-cmake-flags=$target_cmake_flags" >> $GITHUB_OUTPUT
+-        echo "build-flang=$build_flang" >> $GITHUB_OUTPUT
+-
+-  build-stage1:
+-    name: "Build Stage 1"
 -    needs: prepare
--    runs-on: ubuntu-22.04
 -    if: github.repository == 'llvm/llvm-project'
+-    runs-on: ${{ inputs.runs-on }}
 -    steps:
+-
+-    - name: Checkout Actions
+-      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-      with:
+-        ref: ${{ (github.event_name == 'pull_request' && github.sha) || 'main' }}
+-        sparse-checkout: |
+-          .github/workflows/
+-        sparse-checkout-cone-mode: false
+-        # Check out outside of working directory so the source checkout doesn't
+-        # remove it.
+-        path: workflows
+-
+-    # actions/checkout does not support paths outside of the GITHUB_WORKSPACE.
+-    # Also, anything that we put inside of GITHUB_WORKSPACE will be overwritten
+-    # by future actions/checkout steps.  Therefore, in order to checkout the
+-    # latest actions from main, we need to first checkout out the actions inside of
+-    # GITHUB_WORKSPACE (see previous step), then use actions/checkout to checkout
+-    # the code being built and the move the actions from main back into GITHUB_WORKSPACE,
+-    # becasue the uses on composite actions only reads workflows from inside GITHUB_WORKSPACE.
+-    - shell: bash
+-      run: mv workflows  ../workflows-main
+-
 -    - name: Checkout LLVM
 -      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 -      with:
 -        ref: ${{ needs.prepare.outputs.ref }}
 -
--    - name: Install Ninja
--      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
+-    - name: Copy main workflows
+-      shell: bash
+-      run: |
+-        mv ../workflows-main .
+-
+-    - name: Setup Stage
+-      id: setup-stage
+-      uses: ./workflows-main/.github/workflows/release-binaries-setup-stage
 -
 -    - name: Setup sccache
 -      uses: hendrikmuhs/ccache-action@ca3acd2731eef11f1572ccb126356c2f9298d35e # v1.2.9
 -      with:
--        max-size: 250M
--        key: sccache-${{ runner.os }}-release
+-        # Default to 2G to workaround: https://github.com/hendrikmuhs/ccache-action/issues/174
+-        max-size: 2G
+-        key: sccache-${{ runner.os }}-${{ runner.arch }}-release
 -        variant: sccache
 -
 -    - name: Build Stage 1 Clang
+-      id: build
+-      shell: bash
 -      run: |
--        sudo chown $USER:$USER /mnt/
--        cmake -G Ninja -C clang/cmake/caches/Release.cmake -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -S llvm -B /mnt/build
--        ninja -v -C /mnt/build
--
--    # We need to create an archive of the build directory, because it has too
--    # many files to upload.
--    - name: Package Build and Source Directories
--      run: |
--        tar -c . | zstd -T0 -c > llvm-project.tar.zst
--        tar -C /mnt/ -c build/ | zstd -T0 -c > build.tar.zst
--
--    - name: Upload Stage 1 Source
--      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-        # There were some issues on the ARM64 MacOS runners with trying to build x86 object,
+-        # so we need to set some extra cmake flags to disable this.
+-        cmake -G Ninja -S llvm -B ${{ steps.setup-stage.outputs.build-prefix }}/build \
+-            ${{ needs.prepare.outputs.target-cmake-flags }} \
+-            -C clang/cmake/caches/Release.cmake \
+-            -DBOOTSTRAP_LLVM_PARALLEL_LINK_JOBS=1 \
+-            -DBOOTSTRAP_CPACK_PACKAGE_FILE_NAME="${{ needs.prepare.outputs.release-binary-basename }}" \
+-            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+-        ninja -v -C ${{ steps.setup-stage.outputs.build-prefix }}/build
+-        # There is a race condition on the MacOS builders and this command is here
+-        # to help debug that when it happens.
+-        ls -ltr ${{ steps.setup-stage.outputs.build-prefix }}/build
+-    
+-    - name: Save Stage
+-      uses: ./workflows-main/.github/workflows/release-binaries-save-stage
 -      with:
--        name: stage1-source
--        path: llvm-project.tar.zst
--        retention-days: 2
+-        build-prefix: ${{ steps.setup-stage.outputs.build-prefix }}
 -
--    - name: Upload Stage 1 Build Dir
--      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
--      with:
--        name: stage1-build
--        path: build.tar.zst
--        retention-days: 2
--
--  build-stage2-linux:
--    name: "Build Stage 2 Linux"
+-  build-stage2:
+-    name: "Build Stage 2"
 -    needs:
 -      - prepare
--      - build-stage1-linux
--    runs-on: ubuntu-22.04
+-      - build-stage1
 -    if: github.repository == 'llvm/llvm-project'
+-    runs-on: ${{ inputs.runs-on }}
 -    steps:
--    - name: Install Ninja
--      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
--
--    - name: Download Stage 1 Artifacts
--      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-    - name: Checkout Actions
+-      uses: actions/checkout@v4
 -      with:
--        pattern: stage1-*
--        merge-multiple: true
--
--    - name: Unpack Artifacts
--      run: |
--        tar --zstd -xf llvm-project.tar.zst
--        rm llvm-project.tar.zst
--        sudo chown $USER:$USER /mnt/
--        tar --zstd -C /mnt -xf build.tar.zst
--        rm build.tar.zst
+-        ref: ${{ (github.event_name == 'pull_request' && github.sha) || 'main' }}
+-        sparse-checkout: |
+-          .github/workflows/
+-        sparse-checkout-cone-mode: false
+-        path: workflows
+-    - name: Setup Stage
+-      id: setup-stage
+-      uses: ./workflows/.github/workflows/release-binaries-setup-stage
+-      with:
+-        previous-artifact: build-stage1
 -
 -    - name: Build Stage 2
+-      # Re-enable once PGO builds are supported.
+-      if: needs.prepare.outputs.enable-pgo == 'true'
+-      shell: bash
 -      run: |
--        ninja -C /mnt/build stage2-instrumented
+-        ninja -C ${{ steps.setup-stage.outputs.build-prefix}}/build stage2-instrumented
 -
--    # We need to create an archive of the build directory, because it has too
--    # many files to upload.
--    - name: Save Build and Source Directories
--      run: |
--        tar -c . | zstd -T0 -c > llvm-project.tar.zst
--        tar -C /mnt/ -c build/ | zstd -T0 -c > build.tar.zst
--
--    - name: Upload Stage 2 Source
--      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-    - name: Save Stage
+-      uses: ./workflows/.github/workflows/release-binaries-save-stage
 -      with:
--        name: stage2-source
--        path: ${{ github.workspace }}/llvm-project.tar.zst
--        retention-days: 2
+-        build-prefix: ${{ steps.setup-stage.outputs.build-prefix }}
 -
--    - name: Upload Stage 2 Build Dir
--      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
--      with:
--        name: stage2-build
--        path: ${{ github.workspace }}/build.tar.zst
--        retention-days: 2
--
--
--  build-stage3-linux:
--    name: "Build Stage 3 Linux"
+-  build-stage3-clang:
+-    name: "Build Stage 3 LLVM/Clang"
 -    needs:
 -      - prepare
--      - build-stage2-linux
--    outputs:
--      filename: ${{ steps.package-info.outputs.release-filename }}
--    runs-on: ubuntu-22.04-16x64
+-      - build-stage2
 -    if: github.repository == 'llvm/llvm-project'
+-    runs-on: ${{ inputs.runs-on }}
 -    steps:
--    - name: Install Ninja
--      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
--
--    - name: 'Download artifact'
--      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-    - name: Checkout Actions
+-      uses: actions/checkout@v4
 -      with:
--        pattern: stage2-*
--        merge-multiple: true
+-        ref: ${{ (github.event_name == 'pull_request' && github.sha) || 'main' }}
+-        sparse-checkout: |
+-          .github/workflows/
+-        sparse-checkout-cone-mode: false
+-        path: workflows
+-    - name: Setup Stage
+-      id: setup-stage
+-      uses: ./workflows/.github/workflows/release-binaries-setup-stage
+-      with:
+-        previous-artifact: build-stage2
 -
--    - name: Unpack Artifact
+-    - name: Build LLVM/Clang
+-      shell: bash
 -      run: |
--        tar --zstd -xf llvm-project.tar.zst
--        rm llvm-project.tar.zst
--        sudo chown $USER:$USER /mnt/
--        tar --zstd -C /mnt -xf build.tar.zst
--        rm build.tar.zst
+-        # There is a race condition on the MacOS builders and this command is here
+-        # to help debug that when it happens.
+-        ls -ltr ${{ steps.setup-stage.outputs.build-prefix }}/build
+-        ninja -C ${{ steps.setup-stage.outputs.build-prefix }}/build stage2-clang
+-        # Build some of the larger binaries here too.
+-        ninja -C ${{ steps.setup-stage.outputs.build-prefix }}/build/tools/clang/stage2-bins/ \
+-            clang-scan-deps \
+-            modularize clangd \
+-            clangd-indexer \
+-            clang-check \
+-            ${{ (runner.os == 'Linux' && 'clangd-fuzzer') || '' }} \
+-            clang-tidy \
+-            llc \
+-            lli \
+-            llvm-exegesis \
+-            llvm-opt-fuzzer \
+-            llvm-reduce \
+-            llvm-lto \
+-            dsymutil
+-
+-    - name: Save Stage
+-      uses: ./workflows/.github/workflows/release-binaries-save-stage
+-      with:
+-        build-prefix: ${{ steps.setup-stage.outputs.build-prefix }}
+-
+-  build-stage3-flang:
+-    name: "Build Stage 3 Flang/MLIR/Bolt"
+-    needs:
+-      - prepare
+-      - build-stage3-clang
+-    runs-on: ${{ inputs.runs-on }}
+-    steps:
+-    - name: Checkout Actions
+-      uses: actions/checkout@v4
+-      with:
+-        ref: ${{ (github.event_name == 'pull_request' && github.sha) || 'main' }}
+-        sparse-checkout: |
+-          .github/workflows/
+-        sparse-checkout-cone-mode: false
+-        path: workflows
+-    - name: Setup Stage
+-      id: setup-stage
+-      uses: ./workflows/.github/workflows/release-binaries-setup-stage
+-      with:
+-        previous-artifact: build-stage3-clang
+-
+-    - name: Build Flang / MLIR / Bolt
+-      shell: bash
+-      run: |
+-        # Build some of the mlir tools that take a long time to link
+-        if [ "${{ needs.prepare.outputs.build-flang }}" = "true" ]; then
+-          ninja -C ${{ steps.setup-stage.outputs.build-prefix }}/build/tools/clang/stage2-bins/ -j2 flang-new bbc
+-        fi
+-        ninja -C ${{ steps.setup-stage.outputs.build-prefix }}/build/tools/clang/stage2-bins/ \
+-            mlir-bytecode-parser-fuzzer \
+-            mlir-cpu-runner \
+-            mlir-lsp-server \
+-            mlir-opt \
+-            mlir-query \
+-            mlir-reduce \
+-            mlir-text-parser-fuzzer \
+-            mlir-translate \
+-            mlir-transform-opt \
+-            mlir-cat \
+-            mlir-minimal-opt \
+-            mlir-minimal-opt-canonicalize \
+-            mlir-pdll-lsp-server \
+-            llvm-bolt \
+-            llvm-bolt-heatmap
+-    
+-    - name: Save Stage
+-      uses: ./workflows/.github/workflows/release-binaries-save-stage
+-      with:
+-        build-prefix: ${{ steps.setup-stage.outputs.build-prefix }}
+-
+-  build-stage3-all:
+-    name: "Build Stage 3"
+-    needs:
+-      - prepare
+-      - build-stage3-flang
+-    runs-on: ${{ inputs.runs-on }}
+-    steps:
+-    - name: Checkout Actions
+-      uses: actions/checkout@v4
+-      with:
+-        ref: ${{ (github.event_name == 'pull_request' && github.sha) || 'main' }}
+-        sparse-checkout: |
+-          .github/workflows/
+-        sparse-checkout-cone-mode: false
+-        path: workflows
+-    - name: Setup Stage
+-      id: setup-stage
+-      uses: ./workflows/.github/workflows/release-binaries-setup-stage
+-      with:
+-        previous-artifact: build-stage3-flang
 -
 -    - name: Build Release Package
+-      shell: bash
 -      run: |
--        ninja -C /mnt/build stage2-package
--
--    - id: package-info
--      run: |
--        filename="LLVM-${{ needs.prepare.outputs.release-version }}-Linux.tar.gz"
--        echo "filename=$filename" >> $GITHUB_OUTPUT
--        echo "path=/mnt/build/tools/clang/stage2-bins/$filename" >> $GITHUB_OUTPUT
+-        which cmake
+-        ninja -C ${{ steps.setup-stage.outputs.build-prefix }}/build stage2-package
+-        # Copy Release artifact to the workspace so it is easier to upload.
+-        # This is necessary, because on Windows, the build-prefix path can
+-        # only be used on bash steps, because it uses the form of /d/files/
+-        # and other steps expect D:\files.
+-        mv ${{ steps.setup-stage.outputs.build-prefix  }}/build/tools/clang/stage2-bins/${{ needs.prepare.outputs.release-binary-filename }} .
 -
 -    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
--      if: always()
 -      with:
--        name: release-binary
--        path: ${{ steps.package-info.outputs.path }}
+-        name: ${{ runner.os }}-${{ runner.arch }}-release-binary
+-        # Due to path differences on Windows when running in bash vs running on node,
+-        # we need to search for files in the current workspace.
+-        path: |
+-          ${{ needs.prepare.outputs.release-binary-filename }}
 -
 -    # Clean up some build files to reduce size of artifact.
 -    - name: Clean Up Build Directory
+-      shell: bash
 -      run: |
--        find /mnt/build -iname ${{ steps.package-info.outputs.filename }} -delete
+-        find ${{ steps.setup-stage.outputs.build-prefix }}/build -iname ${{ needs.prepare.outputs.release-binary-filename }} -delete
+-        rm -Rf ${{ steps.setup-stage.outputs.build-prefix }}/build/tools/clang/stage2-bins/_CPack_Packages
 -
--    # We need to create an archive of the build directory, because it has too
--    # many files to upload.
--    - name: Save Build and Source Directories
--      run: |
--        tar -c . | zstd -T0 -c > llvm-project.tar.zst
--        tar -C /mnt/ -c build/ | zstd -T0 -c > build.tar.zst
--
--    - name: Upload Stage 3 Source
--      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
+-    - name: Save Stage
+-      uses: ./workflows/.github/workflows/release-binaries-save-stage
 -      with:
--        name: stage3-source
--        path: llvm-project.tar.zst
--        retention-days: 2
+-        build-prefix: ${{ steps.setup-stage.outputs.build-prefix }}
 -
--    - name: Upload Stage 3 Build Dir
--      uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 #v4.3.0
--      with:
--        name: stage3-build
--        path: build.tar.zst
--        retention-days: 2
--
--  upload-release-binaries-linux:
--    name: "Upload Linux Release Binaries"
+-  upload-release-binaries:
+-    name: "Upload Release Binaries"
 -    needs:
 -      - prepare
--      - build-stage3-linux
--    if : ${{ needs.prepare.outputs.upload == 'true' }}
+-      - build-stage3-all
+-    if: >-
+-      always() &&
+-      github.event_name != 'pull_request' &&
+-      needs.prepare.outputs.upload == 'true'
 -    runs-on: ubuntu-22.04
 -    permissions:
 -      contents: write # For release uploads
+-      id-token: write     # For artifact attestations
+-      attestations: write # For artifact attestations
 -
 -    steps:
+-    - name: Checkout Release Scripts
+-      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-      with:
+-        sparse-checkout: |
+-          llvm/utils/release/github-upload-release.py
+-          llvm/utils/git/requirements.txt
+-        sparse-checkout-cone-mode: false
+-
 -    - name: 'Download artifact'
 -      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
 -      with:
--        name: release-binary
+-        pattern: '*-release-binary'
+-        merge-multiple: true
+-
+-    - name: Attest Build Provenance
+-      id: provenance
+-      uses: actions/attest-build-provenance@897ed5eab6ed058a474202017ada7f40bfa52940 # v1.0.0
+-      with:
+-        subject-path: ${{ needs.prepare.outputs.release-binary-filename }}
+-
+-    - name: Rename attestation file
+-      run:
+-        mv ${{ steps.provenance.outputs.bundle-path }} ${{ needs.prepare.outputs.release-binary-filename }}.jsonl
+-
+-    - name: Upload Build Provenance
+-      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 #v4.3.3
+-      with:
+-        name: ${{ needs.prepare.outputs.release-binary-filename }}-attestation
+-        path: ${{ needs.prepare.outputs.release-binary-filename }}.jsonl
+-
+-    - name: Install Python Requirements
+-      run: |
+-        pip install --require-hashes -r ./llvm/utils/git/requirements.txt
 -
 -    - name: Upload Release
+-      shell: bash
 -      run: |
--        sudo apt install python3-github
--        ./llvm-project/llvm/utils/release/github-upload-release.py \
+-        ./llvm/utils/release/github-upload-release.py \
 -        --token ${{ github.token }} \
 -        --release ${{ needs.prepare.outputs.release-version }} \
 -        upload \
--        --files ${{ needs.build-stage3-linux.outputs.release-filename }}
+-        --files ${{ needs.prepare.outputs.release-binary-filename }}*
 -
--
--  test-stage3-linux:
--    name: "Test Stage 3 Linux"
+-  test-stage3:
+-    name: "Test Stage 3"
 -    needs:
 -      - prepare
--      - build-stage3-linux
--    runs-on: ubuntu-22.04
--    if: github.repository == 'llvm/llvm-project'
+-      - build-stage3-all
+-    if: >-
+-      github.repository == 'llvm/llvm-project'
+-    runs-on: ${{ inputs.runs-on }}
 -    steps:
--    - name: Install Ninja
--      uses: llvm/actions/install-ninja@22e9f909d35b50bd1181709564bfe816eaeaae81 # main
--
--    - name: 'Download artifact'
--      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+-    - name: Checkout Actions
+-      uses: actions/checkout@v4
 -      with:
--        pattern: stage3-*
--        merge-multiple: true
--
--    - name: Unpack Artifact
--      run: |
--        tar --zstd -xf llvm-project.tar.zst
--        rm llvm-project.tar.zst
--        sudo chown $USER:$USER /mnt/
--        tar --zstd -C /mnt -xf build.tar.zst
--        rm build.tar.zst
+-        ref: ${{ (github.event_name == 'pull_request' && github.sha) || 'main' }}
+-        sparse-checkout: |
+-          .github/workflows/
+-        sparse-checkout-cone-mode: false
+-        path: workflows
+-    - name: Setup Stage
+-      id: setup-stage
+-      uses: ./workflows/.github/workflows/release-binaries-setup-stage
+-      with:
+-        previous-artifact: build-stage3-all
 -
 -    - name: Run Tests
+-      shell: bash
 -      run: |
--        ninja -C /mnt/build stage2-check-all
+-        ninja -C ${{ steps.setup-stage.outputs.build-prefix }}/build stage2-check-all
 diff --git a/.github/workflows/release-documentation.yml b/.github/workflows/release-documentation.yml
 deleted file mode 100644
-index 64572906988b..000000000000
+index 922c5093f135..000000000000
 --- a/.github/workflows/release-documentation.yml
 +++ /dev/null
-@@ -1,88 +0,0 @@
+@@ -1,91 +0,0 @@
 -name: Release Documentation
 -
 -permissions:
@@ -3785,7 +5186,7 @@ index 64572906988b..000000000000
 -        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 -
 -      - name: Setup Python env
--        uses: actions/setup-python@v4
+-        uses: actions/setup-python@v5
 -        with:
 -          cache: 'pip'
 -          cache-dependency-path: './llvm/docs/requirements.txt'
@@ -3820,26 +5221,29 @@ index 64572906988b..000000000000
 -          ref: main
 -          fetch-depth: 0
 -          path: www-releases
+-          persist-credentials: false
 -
 -      - name: Upload Release Notes
 -        if: env.upload
 -        env:
--          WWW_RELEASES_TOKEN: ${{ secrets.WWW_RELEASES_TOKEN }}
+-          GH_TOKEN: ${{ secrets.WWW_RELEASES_TOKEN }}
 -        run: |
--          mkdir -p ../www-releases/${{ inputs.release-version }}
--          mv ./docs-build/html-export/* ../www-releases/${{ inputs.release-version }}
--          cd ../www-releases
+-          mkdir -p www-releases/${{ inputs.release-version }}
+-          mv ./docs-build/html-export/* www-releases/${{ inputs.release-version }}
+-          cd www-releases
+-          git checkout -b ${{ inputs.release-version }}
 -          git add ${{ inputs.release-version }}
 -          git config user.email "llvmbot@llvm.org"
 -          git config user.name "llvmbot"
 -          git commit -a -m "Add ${{ inputs.release-version }} documentation"
--          git push "https://$WWW_RELEASES_TOKEN@github.com/${{ github.repository_owner }}/www-releases" main:main
+-          git push --force  "https://$GH_TOKEN@github.com/llvmbot/www-releases.git" HEAD:refs/heads/${{ inputs.release-version }}
+-          gh pr create -f -B main -H ${{ inputs.release-version }} -R llvmbot/www-releases
 diff --git a/.github/workflows/release-doxygen.yml b/.github/workflows/release-doxygen.yml
 deleted file mode 100644
-index 5e322849a1d0..000000000000
+index ea95e5bb12b2..000000000000
 --- a/.github/workflows/release-doxygen.yml
 +++ /dev/null
-@@ -1,67 +0,0 @@
+@@ -1,72 +0,0 @@
 -name: Release Doxygen
 -
 -permissions:
@@ -3867,6 +5271,10 @@ index 5e322849a1d0..000000000000
 -        description: 'Upload documentation'
 -        required: false
 -        type: boolean
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN:
+-        description: "Secret used to check user permissions."
+-        required: false
 -
 -jobs:
 -  release-doxygen:
@@ -3881,7 +5289,7 @@ index 5e322849a1d0..000000000000
 -        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 -
 -      - name: Setup Python env
--        uses: actions/setup-python@v4
+-        uses: actions/setup-python@v5
 -        with:
 -          cache: 'pip'
 -          cache-dependency-path: './llvm/docs/requirements.txt'
@@ -3898,21 +5306,22 @@ index 5e322849a1d0..000000000000
 -          pip3 install --user -r ./llvm/docs/requirements.txt
 -
 -      - name: Build Doxygen
--        env:
--          GITHUB_TOKEN: ${{ github.token }}
 -        run: |
 -          ./llvm/utils/release/build-docs.sh -release "${{ inputs.release-version }}" -no-sphinx
 -
 -      - name: Upload Doxygen
 -        if: env.upload
+-        env:
+-          GITHUB_TOKEN: ${{ github.token }}
+-          USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
 -        run: |
--          ./llvm/utils/release/github-upload-release.py --token "$GITHUB_TOKEN" --release "${{ inputs.release-version }}" --user "${{ github.actor }}" upload --files ./*doxygen*.tar.xz
+-          ./llvm/utils/release/github-upload-release.py --token "$GITHUB_TOKEN" --release "${{ inputs.release-version }}" --user "${{ github.actor }}" --user-token "$USER_TOKEN" upload --files ./*doxygen*.tar.xz
 diff --git a/.github/workflows/release-lit.yml b/.github/workflows/release-lit.yml
 deleted file mode 100644
-index 0316ba406041..000000000000
+index 9d6f3140e688..000000000000
 --- a/.github/workflows/release-lit.yml
 +++ /dev/null
-@@ -1,74 +0,0 @@
+@@ -1,79 +0,0 @@
 -name: Release Lit
 -
 -permissions:
@@ -3932,6 +5341,10 @@ index 0316ba406041..000000000000
 -        description: 'Release Version'
 -        required: true
 -        type: string
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN:
+-        description: "Secret used to check user permissions."
+-        required: false
 -
 -jobs:
 -  release-lit:
@@ -3951,8 +5364,9 @@ index 0316ba406041..000000000000
 -      - name: Check Permissions
 -        env:
 -          GITHUB_TOKEN: ${{ github.token }}
+-          USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
 -        run: |
--          ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --user ${{ github.actor }} check-permissions
+-          ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --user ${{ github.actor }} --user-token "$USER_TOKEN" check-permissions
 -
 -      - name: Setup Cpp
 -        uses: aminya/setup-cpp@v1
@@ -3987,16 +5401,130 @@ index 0316ba406041..000000000000
 -        with:
 -          password: ${{ secrets.LLVM_LIT_PYPI_API_TOKEN }}
 -          packages-dir: llvm/utils/lit/dist/
+diff --git a/.github/workflows/release-sources.yml b/.github/workflows/release-sources.yml
+deleted file mode 100644
+index a6c86823f99d..000000000000
+--- a/.github/workflows/release-sources.yml
++++ /dev/null
+@@ -1,108 +0,0 @@
+-name: Release Sources
+-
+-permissions:
+-  contents: read
+-
+-on:
+-  workflow_dispatch:
+-    inputs:
+-      release-version:
+-        description: Release Version
+-        required: true
+-        type: string
+-  workflow_call:
+-    inputs:
+-      release-version:
+-        description: Release Version
+-        required: true
+-        type: string
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN:
+-        description: "Secret used to check user permissions."
+-        required: false
+-  # Run on pull_requests for testing purposes.
+-  pull_request:
+-    paths:
+-      - '.github/workflows/release-sources.yml'
+-    types:
+-      - opened
+-      - synchronize
+-      - reopened
+-      # When a PR is closed, we still start this workflow, but then skip
+-      # all the jobs, which makes it effectively a no-op.  The reason to
+-      # do this is that it allows us to take advantage of concurrency groups
+-      # to cancel in progress CI jobs whenever the PR is closed.
+-      - closed
+-
+-concurrency:
+-  group: ${{ github.workflow }}-${{ inputs.release-version || github.event.pull_request.number }}
+-  cancel-in-progress: True
+-
+-jobs:
+-  inputs:
+-    name: Collect Job Inputs
+-    if: >-
+-      github.repository_owner == 'llvm' &&
+-      github.event.action != 'closed'
+-    outputs:
+-      ref: ${{ steps.inputs.outputs.ref }}
+-      export-args: ${{ steps.inputs.outputs.export-args }}
+-    runs-on: ubuntu-latest
+-    steps:
+-      - id: inputs
+-        run: |
+-          ref=${{ (inputs.release-version && format('llvmorg-{0}', inputs.release-version)) || github.sha }}
+-          if [ -n "${{ inputs.release-version }}" ]; then
+-            export_args="-release ${{ inputs.release-version }} -final"
+-          else
+-            export_args="-git-ref ${{ github.sha }}"
+-          fi
+-          echo "ref=$ref" >> $GITHUB_OUTPUT
+-          echo "export-args=$export_args" >> $GITHUB_OUTPUT
+-
+-  release-sources:
+-    name: Package Release Sources
+-    if: github.repository_owner == 'llvm'
+-    runs-on: ubuntu-latest
+-    needs:
+-      - inputs
+-    permissions:
+-      id-token: write
+-      attestations: write
+-    steps:
+-      - name: Checkout LLVM
+-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+-        with:
+-          ref: ${{ needs.inputs.outputs.ref }}
+-          fetch-tags: true
+-      - name: Install Dependencies
+-        run: |
+-          pip install --require-hashes -r ./llvm/utils/git/requirements.txt
+-
+-      - name: Check Permissions
+-        if: github.event_name != 'pull_request'
+-        env:
+-          GITHUB_TOKEN: ${{ github.token }}
+-          USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
+-        run: |
+-          ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --user ${{ github.actor }} --user-token "$USER_TOKEN" check-permissions
+-      - name: Create Tarballs
+-        run: |
+-          ./llvm/utils/release/export.sh ${{ needs.inputs.outputs.export-args }}
+-      - name: Attest Build Provenance
+-        if: github.event_name != 'pull_request'
+-        id: provenance
+-        uses: actions/attest-build-provenance@897ed5eab6ed058a474202017ada7f40bfa52940 # v1.0.0
+-        with:
+-          subject-path: "*.xz"
+-      - if: github.event_name != 'pull_request'
+-        run: |
+-          mv ${{ steps.provenance.outputs.bundle-path }} .
+-      - name: Create Tarball Artifacts
+-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 #v4.3.3
+-        with:
+-          path: |
+-            *.xz
+-            attestation.jsonl
+-
+-
 diff --git a/.github/workflows/release-tasks.yml b/.github/workflows/release-tasks.yml
 deleted file mode 100644
-index 53da8662b020..000000000000
+index 780dd0ff6325..000000000000
 --- a/.github/workflows/release-tasks.yml
 +++ /dev/null
-@@ -1,81 +0,0 @@
+@@ -1,123 +0,0 @@
 -name: Release Task
 -
 -permissions:
--  contents: write
+-  contents: read
 -
 -on:
 -  push:
@@ -4022,6 +5550,8 @@ index 53da8662b020..000000000000
 -  release-create:
 -    name: Create a New Release
 -    runs-on: ubuntu-latest
+-    permissions:
+-      contents: write # For creating the release.
 -    needs: validate-tag
 -
 -    steps:
@@ -4050,6 +5580,8 @@ index 53da8662b020..000000000000
 -
 -  release-doxygen:
 -    name: Build and Upload Release Doxygen
+-    permissions:
+-      contents: write
 -    needs:
 -      - validate-tag
 -      - release-create
@@ -4057,6 +5589,9 @@ index 53da8662b020..000000000000
 -    with:
 -      release-version: ${{ needs.validate-tag.outputs.release-version }}
 -      upload: true
+-    # Called workflows don't have access to secrets by default, so we need to explicitly pass secrets that we use.
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
 -
 -  release-lit:
 -    name: Release Lit
@@ -4064,19 +5599,54 @@ index 53da8662b020..000000000000
 -    uses: ./.github/workflows/release-lit.yml
 -    with:
 -      release-version: ${{ needs.validate-tag.outputs.release-version }}
+-    # Called workflows don't have access to secrets by default, so we need to explicitly pass secrets that we use.
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
 -
 -  release-binaries:
 -    name: Build Release Binaries
+-    permissions:
+-      contents: write
+-      id-token: write
+-      attestations: write
 -    needs:
 -      - validate-tag
 -      - release-create
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        runs-on:
+-          - ubuntu-22.04
+-          - windows-2022
+-          - macos-13
+-          - macos-14
+-
 -    uses: ./.github/workflows/release-binaries.yml
 -    with:
 -      release-version: ${{ needs.validate-tag.outputs.release-version }}
 -      upload: true
+-      runs-on: ${{ matrix.runs-on }}
+-    # Called workflows don't have access to secrets by default, so we need to explicitly pass secrets that we use.
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
+-
+-  release-sources:
+-    name: Package Release Sources
+-    permissions:
+-      contents: read
+-      id-token: write
+-      attestations: write
+-    needs:
+-      - validate-tag
+-    uses: ./.github/workflows/release-sources.yml
+-    with:
+-      release-version: ${{ needs.validate-tag.outputs.release-version }}
+-    # Called workflows don't have access to secrets by default, so we need to explicitly pass secrets that we use.
+-    secrets:
+-      RELEASE_TASKS_USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
 diff --git a/.github/workflows/scorecard.yml b/.github/workflows/scorecard.yml
 deleted file mode 100644
-index b8e8ab26c3ff..000000000000
+index ff61cf83a6af..000000000000
 --- a/.github/workflows/scorecard.yml
 +++ /dev/null
 @@ -1,62 +0,0 @@
@@ -4118,7 +5688,7 @@ index b8e8ab26c3ff..000000000000
 -          persist-credentials: false
 -
 -      - name: "Run analysis"
--        uses: ossf/scorecard-action@e38b1902ae4f44df626f11ba0734b14fb91f8f86 # v2.1.2
+-        uses: ossf/scorecard-action@0864cf19026789058feabb7e87baa5f140aac736 # v2.3.1
 -        with:
 -          results_file: results.sarif
 -          results_format: sarif
@@ -4184,7 +5754,7 @@ index 14d0798364e9..000000000000
 -echo "ref=$tag" >> $GITHUB_OUTPUT
 diff --git a/.github/workflows/spirv-tests.yml b/.github/workflows/spirv-tests.yml
 deleted file mode 100644
-index 0e1d0caca410..000000000000
+index 75918e73e897..000000000000
 --- a/.github/workflows/spirv-tests.yml
 +++ /dev/null
 @@ -1,29 +0,0 @@
@@ -4215,8 +5785,95 @@ index 0e1d0caca410..000000000000
 -    with:
 -      build_target: check-llvm-codegen-spirv
 -      projects:
--      extra_cmake_args: '-DLLVM_TARGETS_TO_BUILD="" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV"'
+-      extra_cmake_args: '-DLLVM_TARGETS_TO_BUILD="" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV" -DLLVM_INCLUDE_SPIRV_TOOLS_TESTS=ON'
 -      os_list: '["ubuntu-latest"]'
+diff --git a/.github/workflows/unprivileged-download-artifact/action.yml b/.github/workflows/unprivileged-download-artifact/action.yml
+deleted file mode 100644
+index 9d8fb59a67c0..000000000000
+--- a/.github/workflows/unprivileged-download-artifact/action.yml
++++ /dev/null
+@@ -1,81 +0,0 @@
+-name: Unprivileged Download Artifact
+-description: >-
+-  Download artifacts from another workflow run without using an access token.
+-inputs:
+-  run-id:
+-    description: >-
+-      The run-id for the workflow run that you want to download the artifact
+-      from.  If ommitted it will download the most recently created artifact
+-      from the repo with the artifact-name.
+-    required: false
+-  artifact-name:
+-    desciption: The name of the artifact to download.
+-    required: true
+-
+-
+-outputs:
+-  filename:
+-    description: >-
+-      The filename of the downloaded artifact or the empty string if the
+-      artifact was not found.
+-    value: ${{ steps.download-artifact.outputs.filename }}
+-  artifact-id:
+-    description: "The id of the artifact being downloaded."
+-    value: ${{ steps.artifact-url.outputs.id }}
+-
+-
+-runs:
+-  using: "composite"
+-  steps:
+-    - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea #v7.0.1
+-      id: artifact-url
+-      with:
+-        script: |
+-          var response;
+-          if (!"${{ inputs.run-id }}") {
+-            response = await github.rest.actions.listArtifactsForRepo({
+-              owner: context.repo.owner,
+-              repo: context.repo.repo,
+-              name: "${{ inputs.artifact-name }}"
+-            })
+-          } else {
+-            response = await github.rest.actions.listWorkflowRunArtifacts({
+-              owner: context.repo.owner,
+-              repo: context.repo.repo,
+-              run_id: "${{ inputs.run-id }}",
+-              name: "${{ inputs.artifact-name }}"
+-            })
+-          }
+-
+-          console.log(response)
+-
+-          for (artifact of response.data.artifacts) {
+-            console.log(artifact);
+-          }
+-
+-          if (response.data.artifacts.length == 0) {
+-            console.log("Could not find artifact ${{ inputs.artifact-name }} for workflow run ${{ inputs.run-id }}")
+-            return;
+-          }
+-
+-          const url_response = await github.rest.actions.downloadArtifact({
+-            owner: context.repo.owner,
+-            repo: context.repo.repo,
+-            artifact_id: response.data.artifacts[0].id,
+-            archive_format: "zip"
+-          })
+-
+-          core.setOutput("url", url_response.url);
+-          core.setOutput("id", response.data.artifacts[0].id);
+-
+-    - shell: bash
+-      if: steps.artifact-url.outputs.url != ''
+-      id: download-artifact
+-      run: |
+-        curl -L -o ${{ inputs.artifact-name }}.zip "${{ steps.artifact-url.outputs.url }}"
+-        echo "filename=${{ inputs.artifact-name }}.zip" >> $GITHUB_OUTPUT
+-
+-    - shell: bash
+-      if: steps.download-artifact.outputs.filename != ''
+-      run: |
+-        unzip ${{ steps.download-artifact.outputs.filename }}
 diff --git a/.github/workflows/version-check.py b/.github/workflows/version-check.py
 deleted file mode 100755
 index f75fd5030088..000000000000
@@ -4261,7 +5918,7 @@ index f75fd5030088..000000000000
 -sys.exit(0)
 diff --git a/.github/workflows/version-check.yml b/.github/workflows/version-check.yml
 deleted file mode 100644
-index c6d779080bbe..000000000000
+index 894e07d323ca..000000000000
 --- a/.github/workflows/version-check.yml
 +++ /dev/null
 @@ -1,31 +0,0 @@
@@ -4290,15 +5947,15 @@ index c6d779080bbe..000000000000
 -
 -      - name: Install dependencies
 -        run: |
--          pip install -r ./llvm/utils/git/requirements.txt
+-          pip install --require-hashes -r ./llvm/utils/git/requirements.txt
 -
 -      - name: Version Check
 -        run: |
--          version=$(grep -o 'LLVM_VERSION_\(MAJOR\|MINOR\|PATCH\) [0-9]\+' llvm/CMakeLists.txt  | cut -d ' ' -f 2 | tr "\n" "." | sed 's/.$//g')
+-          version=$(grep -o 'LLVM_VERSION_\(MAJOR\|MINOR\|PATCH\) [0-9]\+' cmake/Modules/LLVMVersion.cmake  | cut -d ' ' -f 2 | tr "\n" "." | sed 's/.$//g')
 -          .github/workflows/version-check.py "$version"
 diff --git a/README.md b/README.md
 deleted file mode 100644
-index 7fb16fd1d071..000000000000
+index a9b29ecbc1a3..000000000000
 --- a/README.md
 +++ /dev/null
 @@ -1,44 +0,0 @@
@@ -4320,7 +5977,7 @@ index 7fb16fd1d071..000000000000
 -object files. Tools include an assembler, disassembler, bitcode analyzer, and
 -bitcode optimizer.
 -
--C-like languages use the [Clang](http://clang.llvm.org/) frontend. This
+-C-like languages use the [Clang](https://clang.llvm.org/) frontend. This
 -component compiles C, C++, Objective-C, and Objective-C++ code into LLVM bitcode
 --- and from there into object files, using LLVM.
 -

@@ -1,4 +1,4 @@
-From 249f702fee4c223f11f6a5450dce61d8b2d8d7a4 Mon Sep 17 00:00:00 2001
+From f2fc0238778fe5e0aa3f9dcdf824f9f60f576286 Mon Sep 17 00:00:00 2001
 From: June Rhodes <jrhodes@redpoint.games>
 Date: Tue, 30 Jul 2024 01:15:31 +1000
 Subject: [PATCH] Add support for IWYU analysis
@@ -44,7 +44,7 @@ index baf2136dd252..59c2cd7efbdc 100644
  
  // Warnings and notes related to the function effects system underlying
 diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
-index b38397832079..60de5cca15b4 100644
+index b38397832079..0d99db50afaa 100644
 --- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
 +++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
 @@ -3533,6 +3533,15 @@ def warn_unreal_data_discarded_on_new_specifier : Warning<
@@ -282,7 +282,7 @@ index 70f755a96325..8383ba23320e 100644
    /// namespace with a visibility attribute.
    void PushNamespaceVisibilityAttr(const VisibilityAttr *Attr,
 diff --git a/clang/lib/Frontend/ClangRulesets.cpp b/clang/lib/Frontend/ClangRulesets.cpp
-index e50c72de87d2..a5dc5191dded 100644
+index 4382ad460d8d..ee7dc70f2bc4 100644
 --- a/clang/lib/Frontend/ClangRulesets.cpp
 +++ b/clang/lib/Frontend/ClangRulesets.cpp
 @@ -1,11 +1,14 @@
@@ -1398,7 +1398,7 @@ index e50c72de87d2..a5dc5191dded 100644
      // Cached callbacks.
 @@ -890,18 +1602,43 @@ public:
      llvm::sys::SmartMutex<true> ThreadMutex;
-     llvm::ThreadPool ThreadPool;
+     llvm::StdThreadPool ThreadPool;
  
 +    // Track a list of files that we'll run IWYU analysis on.
 +    llvm::DenseSet<FileEntryRef> IWYUAnalysisFiles;
@@ -1598,7 +1598,7 @@ index e50c72de87d2..a5dc5191dded 100644
    }
  };
  
-@@ -1013,17 +1806,19 @@ public:
+@@ -1011,17 +1804,19 @@ public:
    virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
                                  SrcMgr::CharacteristicKind FileType,
                                  FileID PrevFID, SourceLocation Loc) override {
@@ -1623,7 +1623,7 @@ index e50c72de87d2..a5dc5191dded 100644
  
        // This leaf directory hasn't been seen before. We need to make an
        // absolute path with '.' entries removed so that we can start
-@@ -1043,7 +1838,7 @@ public:
+@@ -1041,7 +1836,7 @@ public:
          // Go check this directory for a .clangrules file.
          llvm::SmallString<256> ClangRulesPath(CurrentAbsolutePath);
          llvm::sys::path::append(ClangRulesPath, ".clang-rules");
@@ -1632,7 +1632,7 @@ index e50c72de87d2..a5dc5191dded 100644
              CI.getFileManager().getFileRef(ClangRulesPath, true, true);
          if (ClangRulesFile) {
            // We got a .clangrules file in this directory; load it into the
-@@ -1052,7 +1847,7 @@ public:
+@@ -1050,7 +1845,7 @@ public:
                CI.getSourceManager().getOrCreateFileID(
                    ClangRulesFile.get(), SrcMgr::CharacteristicKind::C_User);
            State->Dirs[ContainingDirectory].ActualOnDiskConfigs =
@@ -1641,7 +1641,7 @@ index e50c72de87d2..a5dc5191dded 100644
  
            // Add the .clang-rules to the dependencies so that external tools
            // such as UBT know to build again when the rules file changes.
-@@ -1068,13 +1863,16 @@ public:
+@@ -1066,13 +1861,16 @@ public:
          } else {
            // We did not get a .clangrules file in this directory; cache that
            // it is empty.
@@ -1660,7 +1660,7 @@ index e50c72de87d2..a5dc5191dded 100644
          if (CurrentAbsolutePath.empty() ||
              (llvm::sys::path::is_style_windows(
                   llvm::sys::path::Style::native) &&
-@@ -1082,7 +1880,7 @@ public:
+@@ -1080,7 +1878,7 @@ public:
            // No further parent directories.
            break;
          } else {
@@ -1669,7 +1669,7 @@ index e50c72de87d2..a5dc5191dded 100644
                CI.getFileManager().getDirectoryRef(CurrentAbsolutePath, true);
            if (!OptionalParentDirectory) {
              // Can't get parent directory.
-@@ -1097,6 +1895,30 @@ public:
+@@ -1095,6 +1893,30 @@ public:
        }
      }
    }
@@ -1700,7 +1700,7 @@ index e50c72de87d2..a5dc5191dded 100644
  };
  
  class ClangRulesetsConsumer : public ASTConsumer {
-@@ -1109,14 +1931,14 @@ public:
+@@ -1107,14 +1929,14 @@ public:
    virtual ~ClangRulesetsConsumer() override = default;
  
    void HandleTranslationUnit(ASTContext &AST) override {
@@ -1717,7 +1717,7 @@ index e50c72de87d2..a5dc5191dded 100644
  #if defined(_WIN32)
    HMODULE DetoursHandle = GetModuleHandleW(L"UbaDetours.dll");
    if (DetoursHandle) {
-@@ -1124,14 +1946,14 @@ ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
+@@ -1122,14 +1944,14 @@ ClangRulesetsProvider::CreateASTConsumer(clang::CompilerInstance &CI) {
      // work, so turn threading off in these cases. The performance hit is
      // probably acceptable given this scenario means the build is being
      // distributed onto remote machines.
@@ -1735,7 +1735,7 @@ index e50c72de87d2..a5dc5191dded 100644
        std::make_shared<ClangRulesetsState>(ThreadingEnabled, CI);
  
 diff --git a/clang/lib/Lex/UnrealEnginePPTagger.cpp b/clang/lib/Lex/UnrealEnginePPTagger.cpp
-index 89a360aa26de..251e2d79368d 100644
+index a7a128557c3c..ed2f852af157 100644
 --- a/clang/lib/Lex/UnrealEnginePPTagger.cpp
 +++ b/clang/lib/Lex/UnrealEnginePPTagger.cpp
 @@ -82,7 +82,7 @@ void UnrealEnginePPTagger::MacroExpands(const Token &MacroNameTok,

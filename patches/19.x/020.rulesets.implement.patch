@@ -1,17 +1,17 @@
-From 680fde58554270ec79e05a45e2e72af0c73faa5b Mon Sep 17 00:00:00 2001
+From 983906e9a19352ee290d1f36b4b740797bfeb570 Mon Sep 17 00:00:00 2001
 From: June Rhodes <jrhodes@redpoint.games>
 Date: Tue, 3 Feb 2026 17:03:45 +1100
-Subject: [PATCH] [rulesets] Implement support for Clang Rulesets
+Subject: [PATCH] Implement support for Clang Rulesets
 
 ---
  .../clang/ASTMatchers/ASTMatchFinder.h        |   2 +
  .../clang/Basic/DiagnosticCommonKinds.td      |  11 +
  clang/lib/ASTMatchers/ASTMatchFinder.cpp      |   6 +
  clang/lib/Frontend/CMakeLists.txt             |   3 +
- clang/lib/Frontend/ClangRulesets.cpp          | 919 ++++++++++++++++++
+ clang/lib/Frontend/ClangRulesets.cpp          | 917 ++++++++++++++++++
  clang/lib/Frontend/ClangRulesets.h            |  14 +
  clang/lib/Frontend/FrontendAction.cpp         |   9 +-
- 7 files changed, 960 insertions(+), 4 deletions(-)
+ 7 files changed, 958 insertions(+), 4 deletions(-)
  create mode 100644 clang/lib/Frontend/ClangRulesets.cpp
  create mode 100644 clang/lib/Frontend/ClangRulesets.h
 
@@ -29,7 +29,7 @@ index a387d9037b7d..a559ba0fc8ae 100644
    ///
    /// The provided closure is called after parsing is done, before the AST is
 diff --git a/clang/include/clang/Basic/DiagnosticCommonKinds.td b/clang/include/clang/Basic/DiagnosticCommonKinds.td
-index 33b1d58bb5b0..518779110bea 100644
+index 33b1d58bb5b0..8bd5ffc219d6 100644
 --- a/clang/include/clang/Basic/DiagnosticCommonKinds.td
 +++ b/clang/include/clang/Basic/DiagnosticCommonKinds.td
 @@ -416,6 +416,17 @@ def note_mt_message : Note<"[rewriter] %0">;
@@ -88,10 +88,10 @@ index a91666720884..23c6a0cf6be4 100644
    )
 diff --git a/clang/lib/Frontend/ClangRulesets.cpp b/clang/lib/Frontend/ClangRulesets.cpp
 new file mode 100644
-index 000000000000..5a193bfca17f
+index 000000000000..80f7318f59f6
 --- /dev/null
 +++ b/clang/lib/Frontend/ClangRulesets.cpp
-@@ -0,0 +1,919 @@
+@@ -0,0 +1,917 @@
 +#include "ClangRulesets.h"
 +#include "clang/AST/AST.h"
 +#include "clang/AST/ASTConsumer.h"
@@ -756,7 +756,7 @@ index 000000000000..5a193bfca17f
 +#if RULESET_ENABLE_THREADING
 +    // Set up our mutex and thread pool.
 +    llvm::sys::SmartMutex<true> ThreadMutex;
-+    llvm::ThreadPool ThreadPool;
++    llvm::StdThreadPool ThreadPool;
 +#endif
 +
 +    // Iterate through all of the decls in the translation unit.
@@ -881,12 +881,10 @@ index 000000000000..5a193bfca17f
 +class ClangRulesetsPPCallbacks : public PPCallbacks {
 +private:
 +  std::shared_ptr<ClangRulesetsState> State;
-+  CompilerInstance &CI;
 +
 +public:
-+  ClangRulesetsPPCallbacks(std::shared_ptr<ClangRulesetsState> InState,
-+                           CompilerInstance &InCI)
-+      : State(InState), CI(InCI){};
++  ClangRulesetsPPCallbacks(std::shared_ptr<ClangRulesetsState> InState)
++      : State(InState){};
 +  virtual ~ClangRulesetsPPCallbacks() override = default;
 +
 +  virtual void LexedFileChanged(FileID FID, LexedFileChangeReason Reason,
@@ -1004,7 +1002,7 @@ index 000000000000..5a193bfca17f
 +  // Register our preprocessor callbacks, which are used to discover rulesets
 +  // as files are included.
 +  CI.getPreprocessor().addPPCallbacks(
-+      std::make_unique<ClangRulesetsPPCallbacks>(State, CI));
++      std::make_unique<ClangRulesetsPPCallbacks>(State));
 +
 +  // Create and return our consumer for performing analysis.
 +  return std::make_unique<ClangRulesetsConsumer>(State);

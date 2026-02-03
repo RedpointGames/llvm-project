@@ -1,8 +1,7 @@
-From 77f5eec9a170d28dcfe264081eb6970c67879a05 Mon Sep 17 00:00:00 2001
+From 0892dc4da3f67e69012d59d13bb86bb95b0fcea6 Mon Sep 17 00:00:00 2001
 From: June Rhodes <jrhodes@redpoint.games>
 Date: Tue, 3 Feb 2026 16:56:35 +1100
-Subject: [PATCH] [unreal-ast] Track UnrealHeaderTool specifiers in the Clang
- AST
+Subject: [PATCH] Track UnrealHeaderTool specifiers in the Clang AST
 
 ---
  clang/include/clang/AST/Decl.h                |  22 +-
@@ -10,7 +9,7 @@ Subject: [PATCH] [unreal-ast] Track UnrealHeaderTool specifiers in the Clang
  .../clang/Basic/DiagnosticSemaKinds.td        |   6 +
  clang/include/clang/Basic/TokenKinds.def      |  11 +
  clang/include/clang/Lex/UnrealEngineData.h    |  38 +++
- .../include/clang/Lex/UnrealEnginePPTagger.h  |  32 ++
+ .../include/clang/Lex/UnrealEnginePPTagger.h  |  31 ++
  clang/include/clang/Parse/Parser.h            |  15 +
  clang/include/clang/Sema/Sema.h               |  27 ++
  clang/lib/AST/DeclCXX.cpp                     |   7 +-
@@ -24,7 +23,7 @@ Subject: [PATCH] [unreal-ast] Track UnrealHeaderTool specifiers in the Clang
  clang/lib/Sema/Sema.cpp                       |   3 +
  clang/lib/Sema/SemaAttr.cpp                   |  70 ++++
  clang/lib/Sema/SemaDecl.cpp                   |  30 ++
- 19 files changed, 729 insertions(+), 4 deletions(-)
+ 19 files changed, 728 insertions(+), 4 deletions(-)
  create mode 100644 clang/include/clang/Lex/UnrealEngineData.h
  create mode 100644 clang/include/clang/Lex/UnrealEnginePPTagger.h
  create mode 100644 clang/lib/Lex/UnrealEnginePPTagger.cpp
@@ -174,10 +173,10 @@ index 000000000000..667d8f1b1f79
 \ No newline at end of file
 diff --git a/clang/include/clang/Lex/UnrealEnginePPTagger.h b/clang/include/clang/Lex/UnrealEnginePPTagger.h
 new file mode 100644
-index 000000000000..4847d1678f7c
+index 000000000000..34305b103c2c
 --- /dev/null
 +++ b/clang/include/clang/Lex/UnrealEnginePPTagger.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,31 @@
 +// Copyright June Rhodes. Apache License v2.0 with LLVM Exceptions.
 +
 +// @unreal: BEGIN
@@ -191,14 +190,13 @@ index 000000000000..4847d1678f7c
 +
 +class UnrealEnginePPTagger : public PPCallbacks {
 +  Preprocessor &PP;
-+  SourceManager *SM;
 +  std::vector<UnrealSpecifier *> AllocatedStrings;
 +
 +  void *AllocSpecifier(const std::string &InSpecifierName,
 +                       const std::string &InSpecifierValue);
 +
 +public:
-+  UnrealEnginePPTagger(Preprocessor &PP, SourceManager *SM);
++  UnrealEnginePPTagger(Preprocessor &PP);
 +  ~UnrealEnginePPTagger();
 +
 +  virtual void MacroExpands(const Token &MacroNameTok,
@@ -336,7 +334,7 @@ index 766336b89a23..f0267b61a698 100644
    LINK_LIBS
    clangBasic
 diff --git a/clang/lib/Lex/Preprocessor.cpp b/clang/lib/Lex/Preprocessor.cpp
-index 63e27e62cffc..22bd0fdc428c 100644
+index 63e27e62cffc..747b20bb10bf 100644
 --- a/clang/lib/Lex/Preprocessor.cpp
 +++ b/clang/lib/Lex/Preprocessor.cpp
 @@ -51,6 +51,9 @@
@@ -356,14 +354,14 @@ index 63e27e62cffc..22bd0fdc428c 100644
 +
 +  // @unreal: BEGIN
 +  // Always register Unreal Engine PP callbacks.
-+  this->addPPCallbacks(std::make_unique<UnrealEnginePPTagger>(*this, &SM));
++  this->addPPCallbacks(std::make_unique<UnrealEnginePPTagger>(*this));
 +  // @unreal: END
  }
  
  Preprocessor::~Preprocessor() {
 diff --git a/clang/lib/Lex/UnrealEnginePPTagger.cpp b/clang/lib/Lex/UnrealEnginePPTagger.cpp
 new file mode 100644
-index 000000000000..67ac72d9debc
+index 000000000000..8b5097766f82
 --- /dev/null
 +++ b/clang/lib/Lex/UnrealEnginePPTagger.cpp
 @@ -0,0 +1,321 @@
@@ -380,8 +378,8 @@ index 000000000000..67ac72d9debc
 +
 +using namespace clang;
 +
-+UnrealEnginePPTagger::UnrealEnginePPTagger(Preprocessor &PP, SourceManager *SM)
-+    : PP(PP), SM(SM){};
++UnrealEnginePPTagger::UnrealEnginePPTagger(Preprocessor &PP)
++    : PP(PP){};
 +
 +UnrealEnginePPTagger::~UnrealEnginePPTagger() {
 +
