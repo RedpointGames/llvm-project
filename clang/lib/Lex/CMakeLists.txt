@@ -29,6 +29,9 @@ add_clang_library(clangLex
   ScratchBuffer.cpp
   TokenConcatenation.cpp
   TokenLexer.cpp
+  # @unreal: BEGIN
+  UnrealEnginePPTagger.cpp
+  # @unreal: END
 
   LINK_LIBS
   clangBasic
