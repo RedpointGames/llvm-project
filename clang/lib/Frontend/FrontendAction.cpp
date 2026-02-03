@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/FrontendAction.h"
+#include "ClangRulesets.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclGroup.h"
@@ -184,10 +185,6 @@ FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
   if (!FoundAllPlugins)
     return nullptr;
 
-  // If there are no registered plugins we don't need to wrap the consumer
-  if (FrontendPluginRegistry::begin() == FrontendPluginRegistry::end())
-    return Consumer;
-
   // If this is a code completion run, avoid invoking the plugin consumers
   if (CI.hasCodeCompletionConsumer())
     return Consumer;
@@ -225,6 +222,10 @@ FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
       }
     }
   }
+
+  // Add rulesets consumer prior to code generation.
+  Consumers.push_back(
+      clang::rulesets::ClangRulesetsProvider::CreateASTConsumer(CI));
 
   // Add to Consumers the main consumer, then all the plugins that go after it
   Consumers.push_back(std::move(Consumer));
