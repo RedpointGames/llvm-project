@@ -28,6 +28,9 @@ class MacroDefinition;
 class MacroDirective;
 class MacroArgs;
 struct LexEmbedParametersResult;
+class LookupResult;
+class Scope;
+class DeclContext;
 
 /// This interface provides a way to observe the actions of the
 /// preprocessor as it does its thing.
@@ -464,6 +467,12 @@ public:
   /// \param IfLoc the source location of the \#if/\#ifdef/\#ifndef directive.
   virtual void Endif(SourceLocation Loc, SourceLocation IfLoc) {
   }
+
+  // @unreal: BEGIN
+  /// Hook when the semantic system performs a successful lookup.
+  virtual void SemaSuccessfulLookup(LookupResult &R, Scope *S) {}
+  virtual void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) {}
+  // @unreal: END
 };
 
 /// Simple wrapper class for chaining callbacks.
@@ -760,6 +769,17 @@ public:
     First->Endif(Loc, IfLoc);
     Second->Endif(Loc, IfLoc);
   }
+
+  // @unreal: BEGIN
+  void SemaSuccessfulLookup(LookupResult &R, Scope *S) override {
+    First->SemaSuccessfulLookup(R, S);
+    Second->SemaSuccessfulLookup(R, S);
+  }
+  void SemaSuccessfulLookup(LookupResult &R, DeclContext *DC) override {
+    First->SemaSuccessfulLookup(R, DC);
+    Second->SemaSuccessfulLookup(R, DC);
+  }
+  // @unreal: END
 };
 
 }  // end namespace clang
