@@ -268,6 +268,28 @@ public:
     return true;
   }
 
+  // @unreal: BEGIN
+  /// Returns \c true if the \c BoundNodesMap entirely contains the values
+  /// in \c Subset.
+  bool contains(const BoundNodesMap &Subset) {
+    const auto &N = this->NodeMap.end();
+    if (Subset.NodeMap.size() == 1) {
+      // Avoid iteration if the subset only has a single value.
+      const auto &F = Subset.NodeMap.begin();
+      const auto &T = this->NodeMap.find(F->first);
+      return T != N && T->second == F->second;
+    } else {
+      for (const auto &F : Subset.NodeMap) {
+        const auto &T = this->NodeMap.find(F.first);
+        if (T == N || T->second != F.second) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  // @unreal: END
+
 private:
   IDToNodeMap NodeMap;
 };
@@ -305,6 +327,12 @@ public:
   ///
   /// The ownership of 'ResultVisitor' remains at the caller.
   void visitMatches(Visitor* ResultVisitor);
+
+  // @unreal: BEGIN
+  /// Returns true if any of the entries in this tree contain the
+  /// other bound nodes map.
+  bool contains(const internal::BoundNodesMap &Subset);
+  // @unreal: END
 
   template <typename ExcludePredicate>
   bool removeBindings(const ExcludePredicate &Predicate) {

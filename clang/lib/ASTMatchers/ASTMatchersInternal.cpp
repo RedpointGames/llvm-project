@@ -106,6 +106,15 @@ void BoundNodesTreeBuilder::visitMatches(Visitor *ResultVisitor) {
   }
 }
 
+bool BoundNodesTreeBuilder::contains(const internal::BoundNodesMap &Subset) {
+  for (BoundNodesMap &Binding : Bindings) {
+    if (Binding.contains(Subset)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 namespace {
 
 using VariadicOperatorFunction = bool (*)(

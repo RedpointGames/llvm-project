@@ -26,3 +26,18 @@ AST_MATCHER_P(TemplateArgument, refersToPack,
   }
   return false;
 }
+
+/// Matches AST nodes that have no child AST nodes that match the
+/// provided matcher.
+///
+/// Usable as: Any Matcher
+extern const internal::ArgumentAdaptingMatcherFunc<internal::ForNoneMatcher>
+    forNone;
+
+/// Matches AST nodes that have no descendant AST nodes that match the
+/// provided matcher.
+///
+/// Usable as: Any Matcher
+extern const internal::ArgumentAdaptingMatcherFunc<
+    internal::ForNoDescendantMatcher>
+    forNoDescendant;
