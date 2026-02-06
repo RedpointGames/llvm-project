@@ -242,3 +242,4 @@ jobs:
         commit: ${{ env.GITHUB_SHA }}
         body: This release of Clang was automatically created from a successful build.
         generateReleaseNotes: true
+        makeLatest: true
