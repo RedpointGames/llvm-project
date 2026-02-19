@@ -17,6 +17,8 @@
 #include "llvm/Support/Windows/WindowsSupport.h"
 #endif
 
+#include "ClangRulesetsCheckerBase.impl.h"
+
 using namespace clang;
 
 #define RULESET_ENABLE_TIMING 0
@@ -238,6 +240,9 @@ struct ClangRulesRule {
   /// The Clang AST matcher to evaluate against top-level declarations in the
   /// AST.
   std::string Matcher;
+  /// The Clang rulesets custom checker that should be used for this rule
+  /// instead of the matcher.
+  std::string Checker;
   /// Specifies the traversal mode for the AST matcher.
   ClangRulesTraversalMode TraversalMode;
   /// The compiler diagnostic message to emit at the callsite when this static
@@ -253,6 +258,9 @@ struct ClangRulesRule {
   /// The runtime matcher value after the matcher expression has been parsed and
   /// loaded by Clang.
   std::optional<clang::ast_matchers::internal::DynTypedMatcher> MatcherParsed;
+  /// The runtime checker value after the checker parameter has been parsed and
+  /// loaded by Clang.
+  std::optional<ClangRulesetsCheckerBase*> CheckerParsed;
   /// If true, this rule only applies when the compilation triple targets
   /// Windows. This can be used for rules which match on Windows-specific AST
   /// nodes (such as '__declspec(dllexport)').
@@ -400,11 +408,12 @@ struct ScalarEnumerationTraits<
 template <> struct MappingTraits<clang::rulesets::config::ClangRulesRule> {
   static void mapping(IO &IO, clang::rulesets::config::ClangRulesRule &Rule) {
     IO.mapRequired("Name", Rule.Name);
-    IO.mapRequired("Matcher", Rule.Matcher);
+    IO.mapOptional("Matcher", Rule.Matcher);
+    IO.mapOptional("Checker", Rule.Checker);
     IO.mapOptional("TraversalMode", Rule.TraversalMode,
                    clang::rulesets::config::ClangRulesTraversalMode::CRTM_AsIs);
-    IO.mapRequired("ErrorMessage", Rule.ErrorMessage);
-    IO.mapRequired("Callsite", Rule.Callsite);
+    IO.mapOptional("ErrorMessage", Rule.ErrorMessage);
+    IO.mapOptional("Callsite", Rule.Callsite);
     IO.mapOptional("Hints", Rule.Hints);
     IO.mapOptional("WindowsOnly", Rule.WindowsOnly, false);
     IO.mapOptional("Debug", Rule.Debug, false);
@@ -476,6 +485,22 @@ template <> struct MappingTraits<clang::rulesets::config::ClangRules> {
 } // namespace llvm::yaml
 
 namespace clang::rulesets {
+
+template<typename T>
+static std::pair<std::string, std::unique_ptr<ClangRulesetsCheckerBase>> createCheckerDefinition() {
+  
+}
+
+static std::map<std::string, std::unique_ptr<ClangRulesetsCheckerBase>> CheckerDefinitions;
+
+template<typename T>
+class CheckerDefinitionRegister {
+public:
+  CheckerDefinitionRegister() {
+    T* Instance = new T();
+    CheckerDefinitions[Instance->getName()] = std::unique_ptr<ClangRulesetsCheckerBase>(Instance);
+  }
+};
 
 struct ClangRulesetsEffectiveRule {
   // Pointer to memory inside a loaded config::ClangRules.
@@ -1271,6 +1296,7 @@ private:
         }
 
         // Attempt to parse the matcher expression.
+        if (!Rule.Matcher.empty())
         {
           clang::ast_matchers::dynamic::Diagnostics ParseDiag;
           llvm::StringRef MatcherRef(Rule.Matcher);
@@ -1294,6 +1320,31 @@ private:
             // default internally inside Clang and thus we don't need to modify
             // MatcherParsed in this case.
           }
+        }
+
+        // Attempt to parse the checker value.
+        if (!Rule.Checker.empty()) {
+          if (auto FoundChecker = CheckerDefinitions.find(Rule.Checker); FoundChecker != CheckerDefinitions.end()) {
+            Rule.CheckerParsed = FoundChecker->second.get();
+          } else {
+            SrcMgr.getDiagnostics().Report(
+                SrcMgr.getLocForStartOfFile(FileID),
+                diag::err_clangrules_rule_checker_not_found)
+                << NamespacedName << Rule.Checker;
+            StillValid = false;
+            continue;
+          }
+        }
+
+        // Make sure we either have a matcher or checker.
+        if ((!Rule.MatcherParsed.has_value() && !Rule.CheckerParsed.has_value()) ||
+            (Rule.MatcherParsed.has_value() && Rule.CheckerParsed.has_value())) {
+          SrcMgr.getDiagnostics().Report(
+              SrcMgr.getLocForStartOfFile(FileID),
+              diag::err_clangrules_rule_not_one_matcher_or_checker)
+              << NamespacedName;
+          StillValid = false;
+          continue;
         }
       }
 
@@ -1546,11 +1597,20 @@ private:
       // and generate diagnostic IDs so that code can use pragmas to control
       // them.
       for (const auto &EffectiveRule : EffectiveConfig->EffectiveRules) {
-        this->CI.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
-            convertDiagnosticLevel(EffectiveRule.second.Severity),
-            (EffectiveRule.second.Rule->ErrorMessage + " [-W" +
-             EffectiveRule.second.Rule->Name + "]"),
-            EffectiveRule.second.Rule->Name);
+        if (EffectiveRule.second.Rule->Checker.empty()) {
+          this->CI.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+              convertDiagnosticLevel(EffectiveRule.second.Severity),
+              (EffectiveRule.second.Rule->ErrorMessage + " [-W" +
+              EffectiveRule.second.Rule->Name + "]"),
+              EffectiveRule.second.Rule->Name);
+        } else {
+          // Checkers always take the message as an argument to the diagnostic via %0.
+          this->CI.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+              convertDiagnosticLevel(EffectiveRule.second.Severity),
+              ("%0 [-W" +
+              EffectiveRule.second.Rule->Name + "]"),
+              EffectiveRule.second.Rule->Name);
+        }
       }
 
       // Otherwise, this is the effective config for this directory.
@@ -1585,6 +1645,7 @@ private:
 
   class InstantiatedMatcher {
   private:
+
     class InstantiatedMatcherCallback
         : public clang::ast_matchers::MatchFinder::MatchCallback {
     private:
@@ -1672,6 +1733,58 @@ private:
       }
     };
 
+    class InstantiatedCheckerCallback
+        : public clang::ast_matchers::MatchFinder::MatchCallback {
+    private:
+      llvm::sys::SmartMutex<true> &Mutex;
+      ASTContext &AST;
+      const ClangRulesetsEffectiveRule &EffectiveRule;
+
+    public:
+      InstantiatedCheckerCallback(
+          llvm::sys::SmartMutex<true> &InMutex, ASTContext &InAST,
+          const ClangRulesetsEffectiveRule &InEffectiveRule)
+          : Mutex(InMutex), AST(InAST), EffectiveRule(InEffectiveRule){};
+
+      virtual void run(const clang::ast_matchers::MatchFinder::MatchResult
+                           &Result) override {
+        this->EffectiveRule.Rule->CheckerParsed.value()->processMatchResult(
+          this->AST,
+          Result,
+          [this](const std::vector<ClangRulesetsCheckerDiagnostic>& Diagnostics) {
+            if (Diagnostics.size() == 0) {
+              return;
+            }
+
+            // Obtain lock.
+            this->Mutex.lock();
+
+            // Emit reported diagnostics.
+            for (const auto& Diagnostic : Diagnostics) {
+              if (!Diagnostic.IsNote) {
+                clang::DiagnosticIDs::Level DiagnosticLevel =
+                    convertDiagnosticLevel(this->EffectiveRule.Severity);
+                auto CallsiteDiagID =
+                    this->AST.getDiagnostics().getDiagnosticIDs()->getExistingCustomDiagID(
+                            this->EffectiveRule.Rule->Name, DiagnosticLevel);
+                assert(
+                    CallsiteDiagID
+                        .has_value() /* expected diagnostics to have been created */);
+                this->AST.getDiagnostics().Report(Diagnostic.Location, CallsiteDiagID.value()) << Diagnostic.Message;
+              } else {
+                auto HintDiagID =
+                    this->AST.getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+                        clang::DiagnosticIDs::Note, Diagnostic.Message);
+                this->AST.getDiagnostics().Report(Diagnostic.Location, HintDiagID);
+              }
+            }
+
+            // Release lock.
+            this->Mutex.unlock();
+          });
+      }
+    };
+
     std::unique_ptr<ast_matchers::MatchFinder> Finder;
     llvm::DenseMap<const ClangRulesetsEffectiveRule *,
                    clang::ast_matchers::MatchFinder::MatchCallback *>
@@ -1701,6 +1814,15 @@ private:
                                                          EffectiveRule);
         RULESET_TRACE_RULESET("Adding dynamic matcher to finder.\n");
         this->Finder->addDynamicMatcher(*Rule->MatcherParsed, Callback);
+        this->Callbacks[&EffectiveRule] = Callback;
+      }
+      else if (Rule->CheckerParsed.has_value()) {
+        auto *Callback = new InstantiatedCheckerCallback(this->Mutex, this->AST,
+                                                         EffectiveRule);
+        RULESET_TRACE_RULESET("Adding dynamic checker to finder.\n");
+        Rule->CheckerParsed.value()->registerMatcherWithFinder(
+          *this->Finder,
+          Callback);
         this->Callbacks[&EffectiveRule] = Callback;
       }
     }
