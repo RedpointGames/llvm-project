@@ -407,6 +407,8 @@ def err_clangrules_ruleset_severity_is_notset : Error<"ruleset '%0' severity mus
 def err_clangrules_rule_name_conflict : Error<"namespaced rule name '%0' is already declared in another .clang-rules file; try using a different namespace to avoid conflicts">;
 def err_clangrules_rule_missing : Error<"namespaced ruleset '%0' requested namespaced rule '%1' but it wasn't known at runtime; make sure it is declared in either the same .clang-rules file, or in a .clang-rules file in a parent directory">;
 def err_clangrules_rule_matcher_parse_failure : Error<"namespaced rule '%0' matcher failed to parse: %1">;
+def err_clangrules_rule_checker_not_found : Error<"namespaced rule '%0' checker is unknown: %1">;
+def err_clangrules_rule_not_one_matcher_or_checker : Error<"namespaced rule '%0' must have exactly one of 'Matcher' and 'Checker'">;
 
 // API notes
 def err_apinotes_message : Error<"%0">;
