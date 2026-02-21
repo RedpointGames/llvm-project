@@ -18,6 +18,7 @@
 #endif
 
 #include "ClangRulesetsCheckerBase.impl.h"
+#include "ClangRulesetsCheckerPadding.impl.h"
 
 using namespace clang;
 
@@ -501,6 +502,8 @@ public:
     CheckerDefinitions[Instance->getName()] = std::unique_ptr<ClangRulesetsCheckerBase>(Instance);
   }
 };
+
+static CheckerDefinitionRegister<ClangRulesetsCheckerPadding> RegisterPadding;
 
 struct ClangRulesetsEffectiveRule {
   // Pointer to memory inside a loaded config::ClangRules.
