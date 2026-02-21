@@ -1,4 +1,4 @@
-From bb6d984dc86187adb6e7453e6595d79e423d5f2f Mon Sep 17 00:00:00 2001
+From 253c1d101bf63f98eee6d997eef4904ef54d8a04 Mon Sep 17 00:00:00 2001
 From: June Rhodes <jrhodes@redpoint.games>
 Date: Sun, 22 Feb 2026 02:33:21 +1100
 Subject: [PATCH] Prevent unintentional analysis of record declarations in
@@ -6,11 +6,11 @@ Subject: [PATCH] Prevent unintentional analysis of record declarations in
 
 This unintentionally allowed records to be analysed for which the Clang ruleset checker was not enabled.
 ---
- .../ClangRulesetsCheckerPadding.impl.h        | 27 ++++++++++---------
- 1 file changed, 15 insertions(+), 12 deletions(-)
+ .../ClangRulesetsCheckerPadding.impl.h        | 34 +++++++++----------
+ 1 file changed, 16 insertions(+), 18 deletions(-)
 
 diff --git a/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h b/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h
-index 5ee464f37cad..944ef237a4d6 100644
+index 5ee464f37cad..ec94ec706179 100644
 --- a/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h
 +++ b/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h
 @@ -18,7 +18,7 @@ public:
@@ -42,10 +42,15 @@ index 5ee464f37cad..944ef237a4d6 100644
    }
  
  private:
-@@ -53,15 +60,11 @@ private:
-     if (!(RD = RD->getDefinition()))
+@@ -48,20 +55,11 @@ private:
+     if (shouldSkipDecl(AST, RD))
        return;
  
+-    // TODO: Figure out why we are going through declarations and not only
+-    // definitions.
+-    if (!(RD = RD->getDefinition()))
+-      return;
+-
 -    // This is the simplest correct case: a class with no fields and one base
 -    // class. Other cases are more complicated because of how the base classes
 -    // & fields might interact, so we don't bother dealing with them.
@@ -62,6 +67,15 @@ index 5ee464f37cad..944ef237a4d6 100644
  
      auto &ASTContext = RD->getASTContext();
      const ASTRecordLayout &RL = ASTContext.getASTRecordLayout(RD);
+@@ -111,7 +109,7 @@ private:
+   bool shouldSkipDecl(ASTContext &AST, const RecordDecl *RD) const {
+     // TODO: Figure out why we are going through declarations and not only
+     // definitions.
+-    if (!(RD = RD->getDefinition()))
++    if (RD != RD->getDefinition())
+       return true;
+     auto Location = RD->getLocation();
+     // If the construct doesn't have a source file, then it's not something
 -- 
 2.50.1.windows.1
 
