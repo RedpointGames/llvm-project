@@ -3,243 +3,244 @@ name: "Redpoint Games LLVM"
 on:
   workflow_dispatch: {}
   push:
-    branches: [ "redpoint/main" ]
+    branches: ["redpoint/main"]
   pull_request:
-    branches: [ "redpoint/main" ]
+    branches: ["redpoint/main"]
 
 jobs:
-
   variables:
     name: "Compute Variables"
     runs-on: ubuntu-latest
     outputs:
       hash: ${{ steps.extract_branch.outputs.hash }}
+      hashFull: ${{ steps.extract_branch.outputs.hashFull }}
       versions: ${{ steps.extract_branch.outputs.versions }}
       artifacts: ${{ steps.extract_branch.outputs.artifacts }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - id: extract_branch
-      name: Extract commit sha
-      shell: bash
-      run: |
-        pushd llvm
-        VERSIONS=$(ls .)
-        popd
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: extract_branch
+        name: Extract commit sha
+        shell: bash
+        run: |
+          pushd llvm
+          VERSIONS=$(ls .)
+          popd
 
-        echo "hash=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+          echo "hash=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+          echo "hashFull=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-        echo -n 'versions=[' >> $GITHUB_OUTPUT
-        OUTPUT_COMMA="false"
-        for VERSION in $VERSIONS; do
-          if [[ "$OUTPUT_COMMA" != "false" ]]; then
-            echo -n ', ' >> $GITHUB_OUTPUT
-          fi
-          OUTPUT_COMMA="true"
-          echo -n '"' >> $GITHUB_OUTPUT
-          echo -n "$VERSION" >> $GITHUB_OUTPUT
-          echo -n '"' >> $GITHUB_OUTPUT
-        done
-        echo ']' >> $GITHUB_OUTPUT
+          echo -n 'versions=[' >> $GITHUB_OUTPUT
+          OUTPUT_COMMA="false"
+          for VERSION in $VERSIONS; do
+            if [[ "$OUTPUT_COMMA" != "false" ]]; then
+              echo -n ', ' >> $GITHUB_OUTPUT
+            fi
+            OUTPUT_COMMA="true"
+            echo -n '"' >> $GITHUB_OUTPUT
+            echo -n "$VERSION" >> $GITHUB_OUTPUT
+            echo -n '"' >> $GITHUB_OUTPUT
+          done
+          echo ']' >> $GITHUB_OUTPUT
 
-        echo -n "artifacts=info" >> $GITHUB_OUTPUT
-        for VERSION in $VERSIONS; do
-          echo -n ",llvm-linux-$VERSION-${GITHUB_SHA:0:8}.zip,llvm-win64-$VERSION-${GITHUB_SHA:0:8}.zip" >> $GITHUB_OUTPUT
-        done
-        echo '' >> $GITHUB_OUTPUT
+          echo -n "artifacts=info" >> $GITHUB_OUTPUT
+          for VERSION in $VERSIONS; do
+            echo -n ",llvm-linux-$VERSION-${GITHUB_SHA:0:8}.zip,llvm-win64-$VERSION-${GITHUB_SHA:0:8}.zip" >> $GITHUB_OUTPUT
+          done
+          echo '' >> $GITHUB_OUTPUT
 
-        cat $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
 
   llvm-redpoint-linux:
     name: "Build for Linux"
     needs:
-    - variables
+      - variables
     strategy:
       matrix:
         version: ${{ fromJSON(needs.variables.outputs.versions) }}
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Checkout submodules
-      run: git submodule update --init --recursive --depth 1 -- llvm/${{ matrix.version }}
-    - name: Get submodule head
-      id: get-submodule-head
-      run: |
-        echo "SUBMODULE_HASH=$(git -C llvm/${{ matrix.version }} rev-parse HEAD)" >> $GITHUB_OUTPUT
-    - name: Restore cached build
-      id: cache
-      uses: actions/cache/restore@v4
-      with:
-        path: |
-          llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
-        key: llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
-    - name: Generate
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        cd llvm/${{ matrix.version }}
-        mkdir -pv build/release/linux
-        cmake \
-          "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" \
-          -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE \
-          -DLLVM_INCLUDE_BENCHMARKS:BOOL=FALSE \
-          -DLLVM_INCLUDE_DOCS:BOOL=FALSE \
-          -DLLVM_INCLUDE_EXAMPLES:BOOL=FALSE \
-          -DLLVM_INCLUDE_TESTS:BOOL=FALSE \
-          -DCLANG_INCLUDE_TESTS:BOOL=FALSE \
-          -DCLANG_INCLUDE_DOCS:BOOL=FALSE \
-          -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE \
-          -DCMAKE_BUILD_TYPE=Release \
-          -Hllvm -Bbuild/release/linux
-    - name: Build
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        cmake --build llvm/${{ matrix.version }}/build/release/linux --config Release
-    - name: Install
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        cmake --install llvm/${{ matrix.version }}/build/release/linux --config Release --prefix "/opt/llvm-redpoint/${{ matrix.version }}" --strip
-    - name: "Prepare for Upload"
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        mv /opt/llvm-redpoint/${{ matrix.version }} llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-        zip -r llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-    - name: Save cached build
-      if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
-      with:
-        path: |
-          llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
-        key: llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
-    - name: "Rename ZIP file"
-      run: |
-        mv "llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip" "llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
-    - name: "Upload LLVM"
-      uses: actions/upload-artifact@v6
-      with:
-        name: llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-        if-no-files-found: error
-        path: |
-          llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Checkout submodules
+        run: git submodule update --init --recursive --depth 1 -- llvm/${{ matrix.version }}
+      - name: Get submodule head
+        id: get-submodule-head
+        run: |
+          echo "SUBMODULE_HASH=$(git -C llvm/${{ matrix.version }} rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+          key: llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
+      - name: Generate
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd llvm/${{ matrix.version }}
+          mkdir -pv build/release/linux
+          cmake \
+            "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" \
+            -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE \
+            -DLLVM_INCLUDE_BENCHMARKS:BOOL=FALSE \
+            -DLLVM_INCLUDE_DOCS:BOOL=FALSE \
+            -DLLVM_INCLUDE_EXAMPLES:BOOL=FALSE \
+            -DLLVM_INCLUDE_TESTS:BOOL=FALSE \
+            -DCLANG_INCLUDE_TESTS:BOOL=FALSE \
+            -DCLANG_INCLUDE_DOCS:BOOL=FALSE \
+            -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Hllvm -Bbuild/release/linux
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cmake --build llvm/${{ matrix.version }}/build/release/linux --config Release
+      - name: Install
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cmake --install llvm/${{ matrix.version }}/build/release/linux --config Release --prefix "/opt/llvm-redpoint/${{ matrix.version }}" --strip
+      - name: "Prepare for Upload"
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mv /opt/llvm-redpoint/${{ matrix.version }} llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
+          zip -r llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
+      - name: Save cached build
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+          key: llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
+      - name: "Rename ZIP file"
+        run: |
+          mv "llvm-linux-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip" "llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
+      - name: "Upload LLVM"
+        uses: actions/upload-artifact@v6
+        with:
+          name: llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
+          if-no-files-found: error
+          path: |
+            llvm-linux-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
 
   llvm-redpoint-windows:
     name: "Build for Windows"
     needs:
-    - variables
+      - variables
     strategy:
       matrix:
         version: ${{ fromJSON(needs.variables.outputs.versions) }}
     runs-on: windows-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Checkout submodules
-      run: git submodule update --init --recursive --depth 1 -- llvm/${{ matrix.version }}
-    - name: Get submodule head
-      id: get-submodule-head
-      shell: pwsh
-      run: |
-        $SubmoduleHash=(git -C llvm/${{ matrix.version }} rev-parse HEAD).Trim()
-        Set-Content -Path $env:GITHUB_OUTPUT -Value "SUBMODULE_HASH=$SubmoduleHash"
-    - name: Restore cached build
-      id: cache
-      uses: actions/cache/restore@v4
-      with:
-        path: |
-          llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
-        key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
-    - name: Generate
-      if: steps.cache.outputs.cache-hit != 'true'
-      shell: pwsh
-      run: |
-        cd llvm/${{ matrix.version }}
-        mkdir build\release\win64
-        cmake -T host=x64 -A x64 `
-          "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" `
-          -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE `
-          -DLLVM_INCLUDE_BENCHMARKS:BOOL=FALSE `
-          -DLLVM_INCLUDE_DOCS:BOOL=FALSE `
-          -DLLVM_INCLUDE_EXAMPLES:BOOL=FALSE `
-          -DLLVM_INCLUDE_TESTS:BOOL=FALSE `
-          -DCLANG_INCLUDE_TESTS:BOOL=FALSE `
-          -DCLANG_INCLUDE_DOCS:BOOL=FALSE `
-          -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE `
-          -DCMAKE_BUILD_TYPE=Release `
-          -Hllvm -Bbuild/release/win64
-        if ($LastExitCode -ne 0) { exit $LastExitCode }
-    - name: Build
-      if: steps.cache.outputs.cache-hit != 'true'
-      shell: pwsh
-      run: |
-        cmake --build llvm/${{ matrix.version }}/build/release/win64 --config Release
-        if ($LastExitCode -ne 0) { exit $LastExitCode }
-    - name: Install
-      if: steps.cache.outputs.cache-hit != 'true'
-      shell: pwsh
-      run: |
-        if (Test-Path "C:\Program Files\LLVM") {
-          Remove-Item -Force -Recurse "C:\Program Files\LLVM"
-        }
-        cmake --install llvm/${{ matrix.version }}/build/release/win64 --config Release --strip
-        if ($LastExitCode -ne 0) { exit $LastExitCode }
-    - name: "Prepare for Upload"
-      if: steps.cache.outputs.cache-hit != 'true'
-      shell: pwsh
-      run: |
-        Move-Item -Force "C:\Program Files\LLVM" llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-        Compress-Archive -Force -Path "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}" -DestinationPath "llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip"
-    - name: Save cached build
-      if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
-      with:
-        path: |
-          llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
-        key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
-    - name: "Rename ZIP file"
-      shell: pwsh
-      run: |
-        Move-Item -Force "llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip" "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
-    - name: "Upload LLVM ZIP"
-      uses: actions/upload-artifact@v6
-      with:
-        name: llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
-        if-no-files-found: error
-        path: |
-          llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
-  
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Checkout submodules
+        run: git submodule update --init --recursive --depth 1 -- llvm/${{ matrix.version }}
+      - name: Get submodule head
+        id: get-submodule-head
+        shell: pwsh
+        run: |
+          $SubmoduleHash=(git -C llvm/${{ matrix.version }} rev-parse HEAD).Trim()
+          Set-Content -Path $env:GITHUB_OUTPUT -Value "SUBMODULE_HASH=$SubmoduleHash"
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+          key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
+      - name: Generate
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cd llvm/${{ matrix.version }}
+          mkdir build\release\win64
+          cmake -T host=x64 -A x64 `
+            "-DLLVM_ENABLE_PROJECTS:STRING=clang;lld" `
+            -DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=TRUE `
+            -DLLVM_INCLUDE_BENCHMARKS:BOOL=FALSE `
+            -DLLVM_INCLUDE_DOCS:BOOL=FALSE `
+            -DLLVM_INCLUDE_EXAMPLES:BOOL=FALSE `
+            -DLLVM_INCLUDE_TESTS:BOOL=FALSE `
+            -DCLANG_INCLUDE_TESTS:BOOL=FALSE `
+            -DCLANG_INCLUDE_DOCS:BOOL=FALSE `
+            -DLLVM_ENABLE_DIA_SDK:BOOL=FALSE `
+            -DCMAKE_BUILD_TYPE=Release `
+            -Hllvm -Bbuild/release/win64
+          if ($LastExitCode -ne 0) { exit $LastExitCode }
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cmake --build llvm/${{ matrix.version }}/build/release/win64 --config Release
+          if ($LastExitCode -ne 0) { exit $LastExitCode }
+      - name: Install
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files\LLVM") {
+            Remove-Item -Force -Recurse "C:\Program Files\LLVM"
+          }
+          cmake --install llvm/${{ matrix.version }}/build/release/win64 --config Release --strip
+          if ($LastExitCode -ne 0) { exit $LastExitCode }
+      - name: "Prepare for Upload"
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Move-Item -Force "C:\Program Files\LLVM" llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
+          Compress-Archive -Force -Path "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}" -DestinationPath "llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip"
+      - name: Save cached build
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip
+          key: llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}
+      - name: "Rename ZIP file"
+        shell: pwsh
+        run: |
+          Move-Item -Force "llvm-win64-${{ matrix.version }}-${{ steps.get-submodule-head.outputs.SUBMODULE_HASH }}.zip" "llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip"
+      - name: "Upload LLVM ZIP"
+        uses: actions/upload-artifact@v6
+        with:
+          name: llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}
+          if-no-files-found: error
+          path: |
+            llvm-win64-${{ matrix.version }}-${{ needs.variables.outputs.hash }}.zip
+
   create-release:
     name: "Create Release"
     needs:
-    - variables
-    - llvm-redpoint-linux
-    - llvm-redpoint-windows
+      - variables
+      - llvm-redpoint-linux
+      - llvm-redpoint-windows
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     steps:
-    - name: Download Artifacts
-      uses: actions/download-artifact@v7
-      with:
-        merge-multiple: true
-    - name: Create Info File
-      run: |
-        echo "linux=llvm-linux-18.x-${{ needs.variables.outputs.hash }}.zip" > info
-        echo "win64=llvm-win64-18.x-${{ needs.variables.outputs.hash }}.zip" >> info
-        echo "---" >> info
-        ls *.zip >> info
+      - name: Download Artifacts
+        uses: actions/download-artifact@v7
+        with:
+          merge-multiple: true
+      - name: Create Info File
+        run: |
+          echo "linux=llvm-linux-18.x-${{ needs.variables.outputs.hash }}.zip" > info
+          echo "win64=llvm-win64-18.x-${{ needs.variables.outputs.hash }}.zip" >> info
+          echo "---" >> info
+          ls *.zip >> info
 
-        echo "Available ZIP files:"
-        ls *.zip
+          echo "Available ZIP files:"
+          ls *.zip
 
-        echo "All files in current directory:"
-        ls *
-    - name: Publish Release
-      uses: ncipollo/release-action@v1
-      with:
-        artifacts: ${{ needs.variables.outputs.artifacts }}
-        artifactErrorsFailBuild: true
-        artifactContentType: "application/zip"
-        tag: "build-${{ needs.variables.outputs.hash }}"
-        commit: ${{ env.GITHUB_SHA }}
-        body: This release of Clang was automatically created from a successful build.
-        generateReleaseNotes: true
-        makeLatest: true
+          echo "All files in current directory:"
+          ls *
+      - name: Publish Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: ${{ needs.variables.outputs.artifacts }}
+          artifactErrorsFailBuild: true
+          artifactContentType: "application/zip"
+          tag: "build-${{ needs.variables.outputs.hash }}"
+          commit: "${{ needs.variables.outputs.hashFull }}"
+          body: This release of Clang was automatically created from a successful build.
+          generateReleaseNotes: true
+          makeLatest: true
