@@ -1,12 +1,12 @@
-From 1c92e526e96f0a1bd19606b36086cd5902daff36 Mon Sep 17 00:00:00 2001
+From e20d3603716baec449f8aa188d5691a7d803f50b Mon Sep 17 00:00:00 2001
 From: June Rhodes <jrhodes@redpoint.games>
 Date: Sat, 21 Feb 2026 22:32:30 +1100
 Subject: [PATCH] Add 'padding' checker to find sub-optimal field ordering
 
 ---
  clang/lib/Frontend/ClangRulesets.cpp          |   3 +
- .../ClangRulesetsCheckerPadding.impl.h        | 322 ++++++++++++++++++
- 2 files changed, 325 insertions(+)
+ .../ClangRulesetsCheckerPadding.impl.h        | 349 ++++++++++++++++++
+ 2 files changed, 352 insertions(+)
  create mode 100644 clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h
 
 diff --git a/clang/lib/Frontend/ClangRulesets.cpp b/clang/lib/Frontend/ClangRulesets.cpp
@@ -32,10 +32,10 @@ index d413e7fbbbac..3556dbed0562 100644
    config::ClangRulesRule *Rule;
 diff --git a/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h b/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h
 new file mode 100644
-index 000000000000..724c78814281
+index 000000000000..5ee464f37cad
 --- /dev/null
 +++ b/clang/lib/Frontend/ClangRulesetsCheckerPadding.impl.h
-@@ -0,0 +1,322 @@
+@@ -0,0 +1,349 @@
 +#pragma once
 +
 +#include "clang/AST/ASTConsumer.h"
@@ -48,11 +48,11 @@ index 000000000000..724c78814281
 +public:
 +  virtual ~ClangRulesetsCheckerPadding() override = default;
 +
-+  virtual std::string getName() const override {
-+    return "padding";
-+  }
++  virtual std::string getName() const override { return "padding"; }
 +
-+  virtual void registerMatcherWithFinder(clang::ast_matchers::MatchFinder& Finder, clang::ast_matchers::MatchFinder::MatchCallback *Action) const override {
++  virtual void registerMatcherWithFinder(
++      clang::ast_matchers::MatchFinder &Finder,
++      clang::ast_matchers::MatchFinder::MatchCallback *Action) const override {
 +    using namespace clang::ast_matchers;
 +
 +    Finder.addMatcher(recordDecl().bind("record"), Action);
@@ -60,13 +60,14 @@ index 000000000000..724c78814281
 +  }
 +
 +  virtual void processMatchResult(
-+    ASTContext &AST, 
-+    const clang::ast_matchers::MatchFinder::MatchResult &Result,
-+    const ClangRulesetsCheckerReportDiagnostics& ReportDiagnostics) const override {
-+    if (auto* RD = Result.Nodes.getNodeAs<RecordDecl>("record")) {
++      ASTContext &AST,
++      const clang::ast_matchers::MatchFinder::MatchResult &Result,
++      const ClangRulesetsCheckerReportDiagnostics &ReportDiagnostics)
++      const override {
++    if (auto *RD = Result.Nodes.getNodeAs<RecordDecl>("record")) {
 +      this->visitRecord(AST, ReportDiagnostics, RD);
 +    }
-+    if (auto* VD = Result.Nodes.getNodeAs<VarDecl>("var")) {
++    if (auto *VD = Result.Nodes.getNodeAs<VarDecl>("var")) {
 +      this->visitVariable(AST, ReportDiagnostics, VD);
 +    }
 +  }
@@ -78,7 +79,10 @@ index 000000000000..724c78814281
 +  /// PadMultiplier exceeds AllowedPad, then generate a report.
 +  /// PadMultiplier is used to share code with the array padding
 +  /// checker.
-+  void visitRecord(ASTContext &AST, const ClangRulesetsCheckerReportDiagnostics& ReportDiagnostics, const RecordDecl *RD, uint64_t PadMultiplier = 1) const {
++  void
++  visitRecord(ASTContext &AST,
++              const ClangRulesetsCheckerReportDiagnostics &ReportDiagnostics,
++              const RecordDecl *RD, uint64_t PadMultiplier = 1) const {
 +    if (shouldSkipDecl(AST, RD))
 +      return;
 +
@@ -93,7 +97,8 @@ index 000000000000..724c78814281
 +    // TODO: Support other combinations of base classes and fields.
 +    if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
 +      if (CXXRD->field_empty() && CXXRD->getNumBases() == 1)
-+        return visitRecord(AST, ReportDiagnostics, CXXRD->bases().begin()->getType()->getAsRecordDecl(),
++        return visitRecord(AST, ReportDiagnostics,
++                           CXXRD->bases().begin()->getType()->getAsRecordDecl(),
 +                           PadMultiplier);
 +
 +    auto &ASTContext = RD->getASTContext();
@@ -115,12 +120,16 @@ index 000000000000..724c78814281
 +      // There is not enough excess padding to trigger a warning.
 +      return;
 +    }
-+    reportRecord(AST, ReportDiagnostics, RD, BaselinePad, OptimalPad, OptimalFieldsOrder);
++    reportRecord(AST, ReportDiagnostics, RD, BaselinePad, OptimalPad,
++                 OptimalFieldsOrder);
 +  }
 +
 +  /// Look for arrays of overly padded types. If the padding of the
 +  /// array type exceeds AllowedPad, then generate a report.
-+  void visitVariable(ASTContext &AST, const ClangRulesetsCheckerReportDiagnostics& ReportDiagnostics, const VarDecl *VD) const {
++  void
++  visitVariable(ASTContext &AST,
++                const ClangRulesetsCheckerReportDiagnostics &ReportDiagnostics,
++                const VarDecl *VD) const {
 +    const ArrayType *ArrTy = VD->getType()->getAsArrayTypeUnsafe();
 +    if (ArrTy == nullptr)
 +      return;
@@ -317,7 +326,9 @@ index 000000000000..724c78814281
 +  }
 +
 +  void reportRecord(
-+      ASTContext &AST, const ClangRulesetsCheckerReportDiagnostics& ReportDiagnostics, const RecordDecl *RD, CharUnits BaselinePad, CharUnits OptimalPad,
++      ASTContext &AST,
++      const ClangRulesetsCheckerReportDiagnostics &ReportDiagnostics,
++      const RecordDecl *RD, CharUnits BaselinePad, CharUnits OptimalPad,
 +      const SmallVector<const FieldDecl *, 20> &OptimalFieldsOrder) const {
 +    SmallString<100> Buf;
 +    llvm::raw_svector_ostream Os(Buf);
@@ -346,14 +357,30 @@ index 000000000000..724c78814281
 +      } else {
 +        First = false;
 +      }
-+      Os << FD->getName();
++      if (FD->getName().empty()) {
++        // Lambda captures don't set their name, so we need to determine the
++        // source range from the spelling and token length, and then use the
++        // lexer to emit the source text.
++        auto BeginLoc =
++            AST.getSourceManager().getSpellingLoc(FD->getBeginLoc());
++        auto EndLoc = AST.getSourceManager().getSpellingLoc(FD->getEndLoc());
++        unsigned TkLen = Lexer::MeasureTokenLength(
++            EndLoc, AST.getSourceManager(), AST.getLangOpts());
++        EndLoc = EndLoc.getLocWithOffset(TkLen);
++        auto SpelledSource = SourceRange(BeginLoc, EndLoc);
++        Os << Lexer::getSourceText(CharSourceRange::getCharRange(SpelledSource),
++                                   AST.getSourceManager(), AST.getLangOpts(),
++                                   nullptr);
++      } else {
++        Os << FD->getName();
++      }
 +    }
 +    Os << ". consider reordering the fields or adding explicit padding "
 +          "members.";
 +
-+    ReportDiagnostics(std::vector<ClangRulesetsCheckerDiagnostic> {
-+      ClangRulesetsCheckerDiagnostic(RD->getSourceRange().getBegin(), false, Os.str())
-+    });
++    ReportDiagnostics(std::vector<ClangRulesetsCheckerDiagnostic>{
++        ClangRulesetsCheckerDiagnostic(RD->getSourceRange().getBegin(), false,
++                                       Os.str())});
 +  }
 +};
 +
