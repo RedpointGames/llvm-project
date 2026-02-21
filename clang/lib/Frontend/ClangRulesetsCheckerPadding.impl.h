@@ -18,7 +18,7 @@ public:
     using namespace clang::ast_matchers;
 
     Finder.addMatcher(recordDecl().bind("record"), Action);
-    Finder.addMatcher(varDecl().bind("var"), Action);
+    // Finder.addMatcher(varDecl().bind("var"), Action);
   }
 
   virtual void processMatchResult(
@@ -29,9 +29,16 @@ public:
     if (auto *RD = Result.Nodes.getNodeAs<RecordDecl>("record")) {
       this->visitRecord(AST, ReportDiagnostics, RD);
     }
-    if (auto *VD = Result.Nodes.getNodeAs<VarDecl>("var")) {
-      this->visitVariable(AST, ReportDiagnostics, VD);
-    }
+    // @note: This allows record analysis to escape out of the current Clang
+    // ruleset rules. For example, if you declare an array variable that uses a
+    // type from a system header, then if the system header contains excessive
+    // padding this checker would flag. Until we have some way of checking
+    // whether the applicable rule is still enabled at the point of the related
+    // record declaration, we're turning this off.
+    //
+    // if (auto *VD = Result.Nodes.getNodeAs<VarDecl>("var")) {
+    //   this->visitVariable(AST, ReportDiagnostics, VD);
+    // }
   }
 
 private:
@@ -48,20 +55,11 @@ private:
     if (shouldSkipDecl(AST, RD))
       return;
 
-    // TODO: Figure out why we are going through declarations and not only
-    // definitions.
-    if (!(RD = RD->getDefinition()))
-      return;
-
-    // This is the simplest correct case: a class with no fields and one base
-    // class. Other cases are more complicated because of how the base classes
-    // & fields might interact, so we don't bother dealing with them.
-    // TODO: Support other combinations of base classes and fields.
+    // @note: We never analyse base classes, because they may be declared in
+    // files for which this checker is not enabled.
     if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
-      if (CXXRD->field_empty() && CXXRD->getNumBases() == 1)
-        return visitRecord(AST, ReportDiagnostics,
-                           CXXRD->bases().begin()->getType()->getAsRecordDecl(),
-                           PadMultiplier);
+      if (CXXRD->field_empty() && CXXRD->getNumBases() >= 1)
+        return;
 
     auto &ASTContext = RD->getASTContext();
     const ASTRecordLayout &RL = ASTContext.getASTRecordLayout(RD);
@@ -111,7 +109,7 @@ private:
   bool shouldSkipDecl(ASTContext &AST, const RecordDecl *RD) const {
     // TODO: Figure out why we are going through declarations and not only
     // definitions.
-    if (!(RD = RD->getDefinition()))
+    if (RD != RD->getDefinition())
       return true;
     auto Location = RD->getLocation();
     // If the construct doesn't have a source file, then it's not something
